@@ -9,7 +9,6 @@ verify-then-install gate that make the safety model structural.
 
 from __future__ import annotations
 
-import re
 import sys
 import tempfile
 import unittest
@@ -76,17 +75,8 @@ class StatePathMixin(unittest.TestCase):
         )
 
 
-# ================================================================================================
-# T003 — zero third-party dependency guard
-# ================================================================================================
-class ZeroDependencyTest(unittest.TestCase):
-    def test_no_third_party_imports_in_source(self):
-        banned = re.compile(r"^\s*(?:import|from)\s+(msal|azure|requests)\b", re.MULTILINE)
-        for path in (REPO_ROOT / "plugin" / "src").rglob("*.py"):
-            self.assertIsNone(
-                banned.search(path.read_text(encoding="utf-8")),
-                f"{path} imports a forbidden third-party package",
-            )
+# Note: the stdlib-only guard (T003) lives in its own template-aligned module, tests/test_stdlib_only.py
+# (denylist grep + AST walk over plugin/src), so it is not duplicated here.
 
 
 # ================================================================================================
