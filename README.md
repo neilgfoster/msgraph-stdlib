@@ -90,6 +90,21 @@ python3 -m msgraph.client rule-create --name "Newsletters" \
 (Run from `plugin/src/`, or set `PYTHONPATH=plugin/src`. Inside an installed plugin the skills use
 `${CLAUDE_PLUGIN_ROOT}/src/msgraph/client.py`.)
 
+## Verify before done
+
+`ruff` and `pytest` are dev tooling only — they never ship inside `plugin/`. If `python3 -m pip`
+is unavailable, install them isolated with [`uv`](https://docs.astral.sh/uv/)
+(`uv tool install ruff pytest`, then `export PATH="$HOME/.local/bin:$PATH"`).
+
+```sh
+ruff check . && ruff format --check .   # apply with `ruff format .` if it wants changes
+python3 -m pytest -q
+
+# Stdlib-only guard — the same denylist CI enforces in tests/test_stdlib_only.py. The shipped
+# payload under plugin/src must import only the standard library (plus its own `msgraph` package).
+grep -rnE '^\s*(import|from)\s+(msal|azure|requests|urllib3|httpx|aiohttp|pydantic|yaml|dotenv)\b' plugin/src && echo 'FORBIDDEN IMPORT' || echo 'stdlib-only OK'
+```
+
 ## Status
 
 v0.1 implemented spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`): the
