@@ -10,6 +10,21 @@ It gives an agent two capabilities, with safety built into the *structure*, not 
    `messageRule`s, so deterministic mail organisation lives *in Outlook* (runs even when nothing
    else is, visible and editable in Outlook's own UI, reversible by deleting one rule).
 
+## Verbs (skills)
+
+Each skill is a thin wrapper over the stdlib kernel; the runtime catalog is the source of truth
+(`python3 -m msgraph.client describe`). Names are prefixed `msgraph-` when invoked as slash commands.
+
+| Skill | Scope it needs | What it does |
+|---|---|---|
+| `auth-login` | `Mail.Read + MailboxSettings.Read` (read, default) or `+ MailboxSettings.ReadWrite` (`--mode rules`) | Device-code sign-in; caches the token at the XDG path and refreshes it silently. **Run first.** |
+| `mail-list` | `Mail.Read` | List recent inbox messages (concise/detailed, pagination default 25). |
+| `mail-get` | `Mail.Read` | Fetch one message incl. its internet headers (e.g. `List-Unsubscribe`). |
+| `rule-list` | `MailboxSettings.Read` | Enumerate existing inbox rules agent-legibly. |
+| `rule-verify` | `Mail.Read` | Compute a candidate rule's **read-only catch-set** and record the verification gate. |
+| `rule-create` | `MailboxSettings.ReadWrite` | Install a verified move-to-folder rule; refuses unverified criteria. |
+| `rule-remove` | `MailboxSettings.ReadWrite` | Delete a rule by id (the reversibility primitive). |
+
 ## Why stdlib / zero-backend
 
 The Microsoft Graph + Outlook plugin space is crowded — but it is almost entirely Node MCP servers
@@ -47,15 +62,40 @@ CLAUDE.md                                # grounding + build plan for a Claude C
 
 ## Prerequisite (one-time, free)
 
-An **Azure AD app registration** (public client, device-code flow enabled). Add the delegated
-permission `Mail.Read` (and `MailboxSettings.ReadWrite` only if you want rule authoring). No cost,
-no admin consent for personal accounts. Set the resulting client/tenant IDs via environment before
-first auth — see `CLAUDE.md`.
+An **Azure AD app registration** (public client, device-code / public-client flow **enabled**). Add
+the delegated permissions `Mail.Read` + `MailboxSettings.Read` (read mail and list rules), plus
+`MailboxSettings.ReadWrite` only if you want rule authoring. No cost, no admin consent for personal
+accounts. Then export the resulting identifiers before first sign-in (read from the environment,
+never hardcoded):
+
+```bash
+export MSGRAPH_CLIENT_ID="<application (client) id>"
+export MSGRAPH_TENANT_ID="consumers"   # or "common" for work/school + personal accounts
+```
+
+See `plugin/skills/auth-login/SKILL.md` for the full walkthrough.
+
+## Quick start
+
+```bash
+python3 -m msgraph.client describe                              # discover every verb + schema
+python3 -m msgraph.client auth-login                           # read-only sign-in (device code)
+python3 -m msgraph.client mail-list --limit 10                 # triage the inbox
+python3 -m msgraph.client rule-verify --header_contains "List-Unsubscribe"   # preview, read-only
+python3 -m msgraph.client auth-login --mode rules             # escalate (separate consent)
+python3 -m msgraph.client rule-create --name "Newsletters" \
+    --header_contains "List-Unsubscribe" --move_to_folder "Newsletters"
+```
+
+(Run from `plugin/src/`, or set `PYTHONPATH=plugin/src`. Inside an installed plugin the skills use
+`${CLAUDE_PLUGIN_ROOT}/src/msgraph/client.py`.)
 
 ## Status
 
-Scaffolded; skills built spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` →
-`implement`). See `DEFINITION_OF_DONE.md` for the target and `CLAUDE.md` for the build plan.
+v0.1 implemented spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`): the
+seven verbs above, the runtime `describe` catalog, and offline unit tests (Graph HTTP boundary
+mocked). Live auth/Graph behaviour requires the one-time Azure app registration above. See
+`DEFINITION_OF_DONE.md` for the target and `CLAUDE.md` for the build plan.
 
 ## License
 
