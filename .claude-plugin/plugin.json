@@ -1,0 +1,17 @@
+{
+  "name": "{{NAME}}",
+  "version": "0.1.0",
+  "description": "{{DESCRIPTION}}",
+  "author": {
+    "name": "Neil Foster",
+    "url": "https://github.com/neilgfoster"
+  },
+  "repository": "https://github.com/neilgfoster/{{NAME}}",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "stdlib",
+    "zero-backend",
+    "zero-dependency"
+  ]
+}

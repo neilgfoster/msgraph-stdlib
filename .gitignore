@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Secrets/tokens NEVER live in the repo — they belong outside it (XDG, 0600).
+# These patterns are belt-and-braces only; the real guarantee is storing tokens
+# at ${XDG_STATE_HOME:-~/.local/state}/<plugin>/ outside the project tree.
+*token*.json
+secrets/
+.env
+
+# --- Local spec-driven-development scaffolding (kept out of the repo) ---
+# Spec Kit / SDD working artifacts stay local so the template's footprint stays minimal.
+# Remove the relevant lines if you decide to commit these artifacts.
+.tredl/
+.specify/
+specs/
+.claude/skills/speckit-*/
+.agents/skills/speckit-*/
+.github/agents/speckit*
+.github/prompts/speckit*
+# --- end ---
