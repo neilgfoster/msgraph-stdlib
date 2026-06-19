@@ -1,0 +1,16 @@
+# Dev tooling only. The plugin payload under plugin/ stays stdlib-only at runtime;
+# ruff and pytest never ship — they guard the build repo.
+[tool.ruff]
+target-version = "py311"
+line-length = 110
+src = ["plugin/src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["msgraph"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["plugin/src"]
