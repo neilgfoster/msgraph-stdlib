@@ -10,8 +10,8 @@ to "done" is in this repo. The target is `DEFINITION_OF_DONE.md`; read it first.
 `msgraph-stdlib` — a Claude Code plugin that lets an agent **read Outlook mail** and **author native
 Outlook message rules** via Microsoft Graph, with no third-party dependencies and no backend.
 
-The `src/example/` package and `skills/example-subject-verb/` skill are the **inert template
-reference pattern**. Your first build step is to replace them (see "Build plan" below). Keep them as
+The `plugin/src/example/` package and `plugin/skills/example-subject-verb/` skill are the **inert
+template reference pattern**. Your first build step is to replace them (see "Build plan" below). Keep them as
 a reference while you work; delete them once the real skills exist.
 
 ## Non-negotiable conventions (inherited from the template — do not relax)
@@ -46,13 +46,13 @@ This is the heart of the plugin; do not weaken it for convenience.
 
 ## Capabilities to build (the verbs)
 
-Group into skills under `skills/<subject>-<verb>/`, all backed by the `src/msgraph/` kernel:
+Group into skills under `plugin/skills/<subject>-<verb>/`, all backed by the `plugin/src/msgraph/` kernel:
 
 | Skill | Scope | Notes |
 |---|---|---|
-| `auth-login` | `Mail.Read` (default) or `+MailboxSettings.ReadWrite` (opt-in) | device-code flow; cache token at the XDG path; refresh via refresh-token |
+| `auth-login` | `Mail.Read + MailboxSettings.Read` (default read-only) or `Mail.Read + MailboxSettings.ReadWrite` (opt-in) | device-code flow; cache token at the XDG path; refresh via refresh-token |
 | `mail-list` / `mail-get` | `Mail.Read` | list/get messages incl. headers (`internetMessageHeaders`); concise/detailed; pagination default |
-| `rule-list` | `Mail.Read` *(rules are mailbox settings — confirm exact read scope during `plan`)* | enumerate existing `messageRule`s, agent-legible |
+| `rule-list` | `MailboxSettings.Read` *(rules are mailbox settings; included in read-only mode — resolved during `plan`)* | enumerate existing `messageRule`s, agent-legible |
 | `rule-verify` | `Mail.Read` | given candidate predicates (e.g. `headerContains: ["List-Unsubscribe"]`), compute and return the **read-only catch-set** — no write |
 | `rule-create` | `MailboxSettings.ReadWrite` | install a verified rule (predicate → move-to-folder action). Refuse unless a catch-set was verified |
 | `rule-remove` | `MailboxSettings.ReadWrite` | delete a rule by id (the reversibility primitive) |
@@ -63,10 +63,10 @@ Graph endpoints are simple REST over `urllib`; `messageRule` lives under
 ## Prerequisite the human must do once (free)
 
 Azure AD **app registration**: public client, device-code/public-client flow enabled, delegated
-permission `Mail.Read` (+ `MailboxSettings.ReadWrite` for rule authoring). Personal accounts need no
-admin consent. The session should read `MSGRAPH_CLIENT_ID` / `MSGRAPH_TENANT_ID` (default tenant
+permissions `Mail.Read` + `MailboxSettings.Read` (read-only: read mail and list rules) (+
+`MailboxSettings.ReadWrite` for rule authoring). Personal accounts need no admin consent. The session should read `MSGRAPH_CLIENT_ID` / `MSGRAPH_TENANT_ID` (default tenant
 `consumers` or `common`) from the environment — never hardcode them. Document this in
-`skills/auth-login` and the README. **This is not blocking** for `specify`/`clarify`/`plan`/`tasks`
+`plugin/skills/auth-login` and the README. **This is not blocking** for `specify`/`clarify`/`plan`/`tasks`
 or for offline-testable code; only live auth/integration testing needs it.
 
 ## Build plan (spec-first; this is the work)
@@ -80,8 +80,8 @@ or advertise it.
 2. `/speckit-specify` — one feature: **Graph device-code auth + Outlook mail read + message-rule
    CRUD with read-only catch-set verification.** Carry the safety model above as hard requirements.
 3. `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`.
-4. Replace `src/example/` → `src/msgraph/` (update `APP`); replace the example skill with the real
-   ones; make `python3 -m msgraph.client describe` emit the `TOOLS` catalog.
+4. Replace `plugin/src/example/` → `plugin/src/msgraph/` (update `APP`); replace the example skill
+   with the real ones; make `python3 -m msgraph.client describe` emit the `TOOLS` catalog.
 5. Validate against `DEFINITION_OF_DONE.md`. Open a PR for review.
 
 ## Where things are
@@ -89,7 +89,19 @@ or advertise it.
 | Path | Purpose |
 |---|---|
 | `DEFINITION_OF_DONE.md` | **The build target** — read first |
-| `.claude-plugin/plugin.json` | Plugin manifest |
-| `skills/<subject>-<verb>/SKILL.md` | Agent-facing commands |
-| `src/msgraph/client.py` | Stdlib kernel — importable AND runnable; owns the `describe` catalog |
+| `.claude-plugin/marketplace.json` | Marketplace entry — plugin `source` points at `./plugin` |
+| `plugin/.claude-plugin/plugin.json` | Plugin manifest (lives inside the shippable payload) |
+| `plugin/skills/<subject>-<verb>/SKILL.md` | Agent-facing commands |
+| `plugin/src/msgraph/client.py` | Stdlib kernel — importable AND runnable; owns the `describe` catalog |
 | `docs/AGENT-FRIENDLY.md` | **Required reading** — agent-tool design principles |
+| `pyproject.toml`, `tests/`, `.github/` | Dev tooling, tests, CI/release — never shipped in `plugin/` |
+
+**Two-tier layout.** `plugin/` is the shippable payload (its own `.claude-plugin/plugin.json` +
+`skills/`, `src/`, `hooks/`); the repo root is the build/distribution repo. Inside the plugin,
+reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
+
+<!-- SPECKIT START -->
+Active feature plan: `specs/001-msgraph-mail-rules/plan.md` (spec, research, data-model,
+contracts/tools.md, quickstart alongside it). Read it for the technical context, the stdlib-only
+device-code design, the `TOOLS` catalog contract, and the safety-model decisions before implementing.
+<!-- SPECKIT END -->

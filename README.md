@@ -32,13 +32,17 @@ with no supply-chain surface beyond the standard library.
 
 ## Layout
 
+Two-tier: `plugin/` is the shippable payload; the repo root is the build/distribution repo.
+
 ```
-.claude-plugin/plugin.json        # manifest
-skills/<subject>-<verb>/SKILL.md  # agent-facing commands (auth, mail-read, rule-*)
-src/msgraph/client.py             # stdlib kernel — importable + runnable, exposes a `describe` catalog
-docs/AGENT-FRIENDLY.md            # REQUIRED READING before adding/changing a skill
-DEFINITION_OF_DONE.md             # what "working" means — the build target
-CLAUDE.md                         # grounding + build plan for a Claude Code session in this repo
+.claude-plugin/marketplace.json          # marketplace entry — points at ./plugin
+plugin/.claude-plugin/plugin.json        # plugin manifest
+plugin/skills/<subject>-<verb>/SKILL.md  # agent-facing commands (auth, mail-read, rule-*)
+plugin/src/msgraph/client.py             # stdlib kernel — importable + runnable, exposes a `describe` catalog
+docs/AGENT-FRIENDLY.md                   # REQUIRED READING before adding/changing a skill
+pyproject.toml  tests/  .github/         # dev tooling, tests, CI/release (never shipped)
+DEFINITION_OF_DONE.md                    # what "working" means — the build target
+CLAUDE.md                                # grounding + build plan for a Claude Code session in this repo
 ```
 
 ## Prerequisite (one-time, free)

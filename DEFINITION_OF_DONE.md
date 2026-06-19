@@ -40,8 +40,12 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 
 - [ ] **Offline-testable.** Classification/verification/output-shaping logic is unit-tested without
       network (Graph HTTP boundary mockable). Tests pass with stdlib only.
-- [ ] **Template residue gone.** `src/example/` and `skills/example-subject-verb/` replaced by the
-      real `src/msgraph/` and real skills; placeholders (`{{NAME}}`/`{{DESCRIPTION}}`) all filled.
+- [ ] **Two-tier layout.** Shippable payload lives under `plugin/` (`plugin/.claude-plugin/plugin.json`,
+      `plugin/skills/`, `plugin/src/msgraph/`); the root carries `.claude-plugin/marketplace.json`
+      whose plugin `source` resolves to `./plugin`.
+- [ ] **Template residue gone.** `plugin/src/example/` and `plugin/skills/example-subject-verb/`
+      replaced by the real `plugin/src/msgraph/` and real skills; placeholders
+      (`{{NAME}}`/`{{DESCRIPTION}}`) all filled.
 - [ ] **Docs honest.** `README.md` reflects the shipped verbs; `auth-login` documents the one-time
       Azure app-registration prerequisite and the `MSGRAPH_CLIENT_ID`/`MSGRAPH_TENANT_ID` env vars.
 - [ ] **SDD trail stays local.** `.specify/`, `specs/`, `.tredl/` remain gitignored; the public
