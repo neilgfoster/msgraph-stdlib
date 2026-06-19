@@ -12,6 +12,7 @@ Demonstrates, for a real plugin to copy:
 
 Replace the stub `list` command with real operations. Keep the patterns.
 """
+
 import argparse
 import json
 import os
@@ -40,10 +41,17 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 25,
-                          "description": "Max items to return (pagination)."},
-                "format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise",
-                           "description": "concise = agent-legible summary; detailed = adds IDs."},
+                "limit": {
+                    "type": "integer",
+                    "default": 25,
+                    "description": "Max items to return (pagination).",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = agent-legible summary; detailed = adds IDs.",
+                },
             },
             "required": [],
         },

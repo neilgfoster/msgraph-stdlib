@@ -19,6 +19,7 @@ Safety model (structural, not behavioural):
 Secrets never live in the repo: the token cache and verification marker are written
 0600 at ${XDG_STATE_HOME:-~/.local/state}/msgraph-stdlib/, outside the project tree.
 """
+
 import argparse
 import hashlib
 import json
@@ -77,12 +78,19 @@ TOOLS = [
             "equivalent of MCP tools/list; use to discover verbs, descriptions, and input "
             "schemas at runtime."
         ),
-        "annotations": {"readOnlyHint": True, "destructiveHint": False,
-                        "idempotentHint": True, "openWorldHint": False},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Describe a single verb instead of the whole catalog."},
+                "name": {
+                    "type": "string",
+                    "description": "Describe a single verb instead of the whole catalog.",
+                },
             },
             "required": [],
         },
@@ -95,13 +103,22 @@ TOOLS = [
             "to consent to MailboxSettings.ReadWrite for rule authoring — a separate, deliberate "
             "escalation. Run this first; the operator authorises in a browser."
         ),
-        "annotations": {"readOnlyHint": False, "destructiveHint": False,
-                        "idempotentHint": False, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "mode": {"type": "string", "enum": ["read", "rules"], "default": "read",
-                         "description": "read = Mail.Read + MailboxSettings.Read; rules = + MailboxSettings.ReadWrite."},
+                "mode": {
+                    "type": "string",
+                    "enum": ["read", "rules"],
+                    "default": "read",
+                    "description": "read = Mail.Read + MailboxSettings.Read; "
+                    "rules = + MailboxSettings.ReadWrite.",
+                },
             },
             "required": [],
         },
@@ -113,14 +130,26 @@ TOOLS = [
             "List recent inbox messages, agent-legibly. Use for triage/overview. concise (default) "
             "returns readable summaries; detailed adds IDs for follow-up calls. Requires read sign-in."
         ),
-        "annotations": {"readOnlyHint": True, "destructiveHint": False,
-                        "idempotentHint": True, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 25, "description": "Max messages to return (pagination)."},
-                "format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise",
-                           "description": "concise = agent-legible summary; detailed = adds IDs."},
+                "limit": {
+                    "type": "integer",
+                    "default": 25,
+                    "description": "Max messages to return (pagination).",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = agent-legible summary; detailed = adds IDs.",
+                },
             },
             "required": [],
         },
@@ -133,14 +162,25 @@ TOOLS = [
             "content or headers (e.g. to inspect List-Unsubscribe before proposing a rule). "
             "Requires read sign-in."
         ),
-        "annotations": {"readOnlyHint": True, "destructiveHint": False,
-                        "idempotentHint": True, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "message_id": {"type": "string", "description": "Graph message id (from mail-list --format detailed)."},
-                "format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise",
-                           "description": "concise = summary + headers; detailed = full JSON."},
+                "message_id": {
+                    "type": "string",
+                    "description": "Graph message id (from mail-list --format detailed).",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = summary + headers; detailed = full JSON.",
+                },
             },
             "required": ["message_id"],
         },
@@ -153,13 +193,21 @@ TOOLS = [
             "readable terms. Use to understand current organisation before proposing changes. "
             "Requires read sign-in."
         ),
-        "annotations": {"readOnlyHint": True, "destructiveHint": False,
-                        "idempotentHint": True, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise",
-                           "description": "concise = readable summary; detailed = full JSON incl. ids."},
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = readable summary; detailed = full JSON incl. ids.",
+                },
             },
             "required": [],
         },
@@ -172,15 +220,26 @@ TOOLS = [
             "match — WITHOUT writing anything. ALWAYS run before rule-create; it both previews "
             "intent and records the verification that rule-create requires. Requires read sign-in."
         ),
-        "annotations": {"readOnlyHint": True, "destructiveHint": False,
-                        "idempotentHint": True, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "header_contains": {"type": "array", "items": {"type": "string"},
-                                    "description": "Substrings matched (case-insensitively) against raw internet headers."},
-                "format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise",
-                           "description": "concise = matches + count; detailed = full JSON."},
+                "header_contains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Substrings matched (case-insensitively) against raw internet headers.",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = matches + count; detailed = full JSON.",
+                },
             },
             "required": ["header_contains"],
         },
@@ -193,14 +252,21 @@ TOOLS = [
             "were verified first (run rule-verify). Action is move-to-folder only — never delete. "
             "Requires rule-authoring sign-in (auth-login --mode rules)."
         ),
-        "annotations": {"readOnlyHint": False, "destructiveHint": False,
-                        "idempotentHint": False, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Display name for the rule."},
-                "header_contains": {"type": "array", "items": {"type": "string"},
-                                    "description": "Predicate substrings — MUST match a prior rule-verify."},
+                "header_contains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Predicate substrings — MUST match a prior rule-verify.",
+                },
                 "move_to_folder": {"type": "string", "description": "Target folder name for matching mail."},
             },
             "required": ["name", "header_contains", "move_to_folder"],
@@ -213,12 +279,19 @@ TOOLS = [
             "Delete a rule by id (the reversibility primitive). Removes only the rule; never deletes "
             "any messages. Requires rule-authoring sign-in."
         ),
-        "annotations": {"readOnlyHint": False, "destructiveHint": True,
-                        "idempotentHint": False, "openWorldHint": True},
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "rule_id": {"type": "string", "description": "Graph rule id (from rule-list --format detailed)."},
+                "rule_id": {
+                    "type": "string",
+                    "description": "Graph rule id (from rule-list --format detailed).",
+                },
             },
             "required": ["rule_id"],
         },
@@ -272,10 +345,10 @@ def _http(method: str, url: str, token: str = None, body=None, form: bool = Fals
             raise SteerError(
                 f"Graph denied the request ({e.code}). Your token may lack the required scope or "
                 f"have expired — re-run /msgraph-auth-login (use --mode rules for rule authoring)."
-            )
-        raise SteerError(f"Graph request failed ({e.code} {method} {url}): {detail or e.reason}")
+            ) from e
+        raise SteerError(f"Graph request failed ({e.code} {method} {url}): {detail or e.reason}") from e
     except urllib.error.URLError as e:
-        raise SteerError(f"Could not reach Microsoft Graph: {e.reason}")
+        raise SteerError(f"Could not reach Microsoft Graph: {e.reason}") from e
 
 
 # ================================================================================================
@@ -317,8 +390,7 @@ def _require_scopes(tok: dict, needed) -> None:
                 "does not hold. Escalate deliberately: run /msgraph-auth-login --mode rules."
             )
         raise SteerError(
-            f"Current sign-in is missing scope(s): {' '.join(sorted(missing))}. Re-run "
-            f"/msgraph-auth-login."
+            f"Current sign-in is missing scope(s): {' '.join(sorted(missing))}. Re-run /msgraph-auth-login."
         )
 
 
@@ -331,10 +403,17 @@ def _refresh_if_needed(tok: dict) -> dict:
     rt = tok.get("refresh_token")
     if not rt:
         raise SteerError("Session expired and no refresh token — run /msgraph-auth-login again.")
-    resp = _http("POST", f"{_authority()}/token", form=True, body={
-        "grant_type": "refresh_token", "refresh_token": rt,
-        "client_id": _client_id(), "scope": tok.get("scope", ""),
-    })
+    resp = _http(
+        "POST",
+        f"{_authority()}/token",
+        form=True,
+        body={
+            "grant_type": "refresh_token",
+            "refresh_token": rt,
+            "client_id": _client_id(),
+            "scope": tok.get("scope", ""),
+        },
+    )
     return _store_token_response(resp, fallback_scope=tok.get("scope", ""))
 
 
@@ -405,8 +484,7 @@ def compute_catch_set(messages: list, header_contains) -> list:
     matched = []
     for m in messages:
         blob = " ".join(
-            f"{h.get('name', '')}: {h.get('value', '')}"
-            for h in (m.get("internetMessageHeaders") or [])
+            f"{h.get('name', '')}: {h.get('value', '')}" for h in (m.get("internetMessageHeaders") or [])
         ).casefold()
         if all(n in blob for n in needles):
             matched.append(m)
@@ -426,8 +504,11 @@ def _render_messages(items: list, fmt: str) -> str:
         return json.dumps(items, indent=2)
     if not items:
         return "No messages."
-    lines = [f'- "{m.get("subject", "(no subject)")}" from {_sender_of(m)}'
-             f'  (received: {m.get("receivedDateTime", "?")})' for m in items]
+    lines = [
+        f'- "{m.get("subject", "(no subject)")}" from {_sender_of(m)}'
+        f"  (received: {m.get('receivedDateTime', '?')})"
+        for m in items
+    ]
     lines.append(f"{len(items)} message(s). Pass --format detailed for IDs needed by follow-up commands.")
     return "\n".join(lines)
 
@@ -475,21 +556,29 @@ def cmd_auth_login(args) -> int:
             "flow enabled), then export MSGRAPH_CLIENT_ID and MSGRAPH_TENANT_ID. See skills/auth-login."
         )
     scope = SCOPES[args.mode]
-    dc = _http("POST", f"{_authority()}/devicecode", form=True,
-               body={"client_id": _client_id(), "scope": scope})
-    print(dc.get("message")
-          or f"To sign in, open {dc['verification_uri']} and enter code {dc['user_code']}",
-          file=sys.stderr)
+    dc = _http(
+        "POST", f"{_authority()}/devicecode", form=True, body={"client_id": _client_id(), "scope": scope}
+    )
+    print(
+        dc.get("message") or f"To sign in, open {dc['verification_uri']} and enter code {dc['user_code']}",
+        file=sys.stderr,
+    )
 
     interval = int(dc.get("interval", 5))
     deadline = time.time() + int(dc.get("expires_in", 900))
     while time.time() < deadline:
         time.sleep(interval)
         try:
-            resp = _http("POST", f"{_authority()}/token", form=True, body={
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "client_id": _client_id(), "device_code": dc["device_code"],
-            })
+            resp = _http(
+                "POST",
+                f"{_authority()}/token",
+                form=True,
+                body={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "client_id": _client_id(),
+                    "device_code": dc["device_code"],
+                },
+            )
         except SteerError:
             # authorization_pending is reported as an HTTP 400 by the token endpoint; keep polling.
             continue
@@ -505,8 +594,9 @@ def cmd_mail_list(args) -> int:
     """List recent inbox messages (GET /me/messages), shaped concise/detailed (FR-005)."""
     tok = _authed_token("Mail.Read")
     sel = "id,subject,from,receivedDateTime"
-    data = _graph_get(tok["access_token"],
-                      f"/me/messages?$top={args.limit}&$select={sel}&$orderby=receivedDateTime desc")
+    data = _graph_get(
+        tok["access_token"], f"/me/messages?$top={args.limit}&$select={sel}&$orderby=receivedDateTime desc"
+    )
     print(_render_messages(data.get("value", []), args.format))
     return 0
 
@@ -519,13 +609,13 @@ def cmd_mail_get(args) -> int:
     if args.format == "detailed":
         print(json.dumps(msg, indent=2))
     else:
-        print(f'Subject: {msg.get("subject", "(no subject)")}')
+        print(f"Subject: {msg.get('subject', '(no subject)')}")
         print(f"From:    {_sender_of(msg)}")
-        print(f'Received: {msg.get("receivedDateTime", "?")}')
+        print(f"Received: {msg.get('receivedDateTime', '?')}")
         headers = msg.get("internetMessageHeaders") or []
         print(f"\nInternet headers ({len(headers)}):")
         for h in headers:
-            print(f'  {h.get("name")}: {h.get("value")}')
+            print(f"  {h.get('name')}: {h.get('value')}")
     return 0
 
 
@@ -545,8 +635,10 @@ def cmd_rule_verify(args) -> int:
     if args.format == "detailed":
         print(json.dumps({"count": len(matches), "matches": matches}, indent=2))
     else:
-        print(f"Catch-set for header_contains {args.header_contains}: {len(matches)} message(s)"
-              + (" (none currently match)" if not matches else ""))
+        print(
+            f"Catch-set for header_contains {args.header_contains}: {len(matches)} message(s)"
+            + (" (none currently match)" if not matches else "")
+        )
         print(_render_messages(matches, "concise"))
         print("\nVerified. You may now run rule-create with these exact criteria.")
     return 0
@@ -562,11 +654,13 @@ def _render_rules(rules: list, fmt: str) -> str:
         conds = r.get("conditions") or {}
         hc = conds.get("headerContains") or []
         action = r.get("actions") or {}
-        folder = (action.get("moveToFolder") or "")
-        out.append(f'- "{r.get("displayName", "(unnamed)")}"'
-                   f'{"  enabled" if r.get("isEnabled", True) else "  disabled"}'
-                   f'\n    if header contains: {hc or "(other criteria)"}'
-                   f'\n    → move to folder id: {folder or "(other action)"}')
+        folder = action.get("moveToFolder") or ""
+        out.append(
+            f'- "{r.get("displayName", "(unnamed)")}"'
+            f"{'  enabled' if r.get('isEnabled', True) else '  disabled'}"
+            f"\n    if header contains: {hc or '(other criteria)'}"
+            f"\n    → move to folder id: {folder or '(other action)'}"
+        )
     out.append(f"{len(rules)} rule(s). Pass --format detailed for ids needed by rule-remove.")
     return "\n".join(out)
 
@@ -580,7 +674,10 @@ def cmd_rule_list(args) -> int:
 
 
 def cmd_rule_create(args) -> int:
-    """Install a verified move-to-folder rule. Refuses without write scope or a prior verify (FR-009/FR-010)."""
+    """Install a verified move-to-folder rule.
+
+    Refuses without write scope or a prior verify (FR-009/FR-010).
+    """
     tok = _authed_token(WRITE_SCOPE)
     marker = read_verification(args.header_contains)
     if not marker:
@@ -598,20 +695,22 @@ def cmd_rule_create(args) -> int:
         "conditions": {"headerContains": list(args.header_contains)},
         "actions": {"moveToFolder": folder_id, "stopProcessingRules": False},
     }
-    created = _http("POST", f"{GRAPH}/me/mailFolders/inbox/messageRules",
-                    token=tok["access_token"], body=body)
-    print(f'Created rule "{args.name}" (id: {created.get("id", "?")}). It files mail whose headers '
-          f'contain {args.header_contains} into "{args.move_to_folder}". '
-          f"Verified catch-set was {marker.get('count', '?')} message(s). "
-          f"Reverse anytime with rule-remove.")
+    created = _http(
+        "POST", f"{GRAPH}/me/mailFolders/inbox/messageRules", token=tok["access_token"], body=body
+    )
+    print(
+        f'Created rule "{args.name}" (id: {created.get("id", "?")}). It files mail whose headers '
+        f'contain {args.header_contains} into "{args.move_to_folder}". '
+        f"Verified catch-set was {marker.get('count', '?')} message(s). "
+        f"Reverse anytime with rule-remove."
+    )
     return 0
 
 
 def cmd_rule_remove(args) -> int:
     """Delete a rule by id (the reversibility primitive). Never touches messages (FR-011/FR-012)."""
     tok = _authed_token(WRITE_SCOPE)
-    _http("DELETE", f"{GRAPH}/me/mailFolders/inbox/messageRules/{args.rule_id}",
-          token=tok["access_token"])
+    _http("DELETE", f"{GRAPH}/me/mailFolders/inbox/messageRules/{args.rule_id}", token=tok["access_token"])
     print(f"Removed rule {args.rule_id}. No messages were deleted; any mail already filed stays put.")
     return 0
 
@@ -639,18 +738,25 @@ def _build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=_HANDLERS[tool["name"]])
 
     sub.choices["describe"].add_argument("--name", help="describe a single verb instead of the catalog")
-    sub.choices["auth-login"].add_argument("--mode", choices=["read", "rules"], default="read",
-                                           help="read (default) or rules (write escalation)")
+    sub.choices["auth-login"].add_argument(
+        "--mode", choices=["read", "rules"], default="read", help="read (default) or rules (write escalation)"
+    )
     for verb in ("mail-list",):
         sub.choices[verb].add_argument("--limit", type=int, default=25, help="max items (pagination)")
     for verb in ("mail-list", "mail-get", "rule-list", "rule-verify"):
         sub.choices[verb].add_argument("--format", choices=["concise", "detailed"], default="concise")
     sub.choices["mail-get"].add_argument("--message_id", required=True, help="Graph message id")
-    sub.choices["rule-verify"].add_argument("--header_contains", nargs="+", required=True,
-                                            metavar="SUBSTR", help="header substrings to match")
+    sub.choices["rule-verify"].add_argument(
+        "--header_contains", nargs="+", required=True, metavar="SUBSTR", help="header substrings to match"
+    )
     sub.choices["rule-create"].add_argument("--name", required=True, help="rule display name")
-    sub.choices["rule-create"].add_argument("--header_contains", nargs="+", required=True,
-                                            metavar="SUBSTR", help="predicate substrings (must match a prior verify)")
+    sub.choices["rule-create"].add_argument(
+        "--header_contains",
+        nargs="+",
+        required=True,
+        metavar="SUBSTR",
+        help="predicate substrings (must match a prior verify)",
+    )
     sub.choices["rule-create"].add_argument("--move_to_folder", required=True, help="target folder name")
     sub.choices["rule-remove"].add_argument("--rule_id", required=True, help="Graph rule id")
     return parser
