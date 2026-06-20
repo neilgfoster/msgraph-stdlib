@@ -516,13 +516,27 @@ def _render_messages(items: list, fmt: str) -> str:
 # ================================================================================================
 # Graph helpers
 # ================================================================================================
-def _graph_get(token: str, path: str) -> dict:
-    return _http("GET", f"{GRAPH}{path}", token=token)
+def _graph_url(path: str, params: dict | None = None) -> str:
+    """Build a Graph URL, percent-encoding query values so the URL is valid for urllib/http.client.
+
+    OData values routinely contain spaces (``$orderby=receivedDateTime desc``) and other reserved
+    characters; an unencoded space raises ``http.client.InvalidURL`` on first live use. ``$`` and
+    ``,`` are kept literal because Graph expects them verbatim in option names (``$top``, ``$orderby``)
+    and ``$select`` lists; everything else (notably spaces → ``%20``) is percent-encoded.
+    """
+    url = f"{GRAPH}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote, safe="$,")
+    return url
+
+
+def _graph_get(token: str, path: str, params: dict | None = None) -> dict:
+    return _http("GET", _graph_url(path, params), token=token)
 
 
 def _resolve_folder_id(token: str, name: str) -> str:
     """Look up a mail folder id by display name for the move-to-folder action (data-model)."""
-    data = _graph_get(token, "/me/mailFolders?$top=100&$select=id,displayName")
+    data = _graph_get(token, "/me/mailFolders", params={"$top": 100, "$select": "id,displayName"})
     for f in data.get("value", []):
         if f.get("displayName", "").casefold() == name.casefold():
             return f["id"]
@@ -530,6 +544,37 @@ def _resolve_folder_id(token: str, name: str) -> str:
         f"No mail folder named '{name}' was found. Create it in Outlook first, or pass an "
         f"existing folder name (rule actions file mail to a folder; they never delete)."
     )
+
+
+# Action keys whose value is an opaque folder id we can resolve to a display name (read-only).
+_FOLDER_ACTION_KEYS = ("moveToFolder", "copyToFolder")
+
+
+def _folder_name_map(token: str) -> dict:
+    """id→displayName for all mail folders at any nesting depth.
+
+    Lets rule-list show move/copy-to-folder targets by name. Walks the folder tree breadth-first,
+    descending only into folders that report children (``childFolderCount``) so the number of GETs is
+    proportional to the folders-with-children, not the whole tree. Read-only; failures degrade
+    silently, leaving unresolved ids to fall back to the raw id so output never lies about the target.
+    """
+    names: dict = {}
+    params = {"$top": 200, "$select": "id,displayName,childFolderCount"}
+    # Queue of folder-listing paths to fetch; seed with the top level.
+    pending = ["/me/mailFolders"]
+    try:
+        while pending:
+            data = _graph_get(token, pending.pop(), params=params)
+            for f in data.get("value", []):
+                fid = f.get("id")
+                if not fid:
+                    continue
+                names[fid] = f.get("displayName", "")
+                if f.get("childFolderCount", 0):
+                    pending.append(f"/me/mailFolders/{urllib.parse.quote(fid, safe='')}/childFolders")
+    except SteerError:
+        pass  # partial map is fine — unresolved ids render as raw ids
+    return names
 
 
 # ================================================================================================
@@ -595,7 +640,9 @@ def cmd_mail_list(args) -> int:
     tok = _authed_token("Mail.Read")
     sel = "id,subject,from,receivedDateTime"
     data = _graph_get(
-        tok["access_token"], f"/me/messages?$top={args.limit}&$select={sel}&$orderby=receivedDateTime desc"
+        tok["access_token"],
+        "/me/messages",
+        params={"$top": args.limit, "$select": sel, "$orderby": "receivedDateTime desc"},
     )
     print(_render_messages(data.get("value", []), args.format))
     return 0
@@ -605,7 +652,8 @@ def cmd_mail_get(args) -> int:
     """Fetch one message including internet headers (FR-006)."""
     tok = _authed_token("Mail.Read")
     sel = "id,subject,from,receivedDateTime,body,internetMessageHeaders"
-    msg = _graph_get(tok["access_token"], f"/me/messages/{args.message_id}?$select={sel}")
+    mid = urllib.parse.quote(args.message_id, safe="")
+    msg = _graph_get(tok["access_token"], f"/me/messages/{mid}", params={"$select": sel})
     if args.format == "detailed":
         print(json.dumps(msg, indent=2))
     else:
@@ -622,7 +670,11 @@ def cmd_mail_get(args) -> int:
 def _fetch_messages_with_headers(token: str, limit: int = 100) -> list:
     """Read messages + their internet headers for catch-set evaluation (read-only, GETs only)."""
     sel = "id,subject,from,receivedDateTime,internetMessageHeaders"
-    data = _graph_get(token, f"/me/messages?$top={limit}&$select={sel}&$orderby=receivedDateTime desc")
+    data = _graph_get(
+        token,
+        "/me/messages",
+        params={"$top": limit, "$select": sel, "$orderby": "receivedDateTime desc"},
+    )
     return data.get("value", [])
 
 
@@ -644,23 +696,64 @@ def cmd_rule_verify(args) -> int:
     return 0
 
 
-def _render_rules(rules: list, fmt: str) -> str:
+def _humanize_key(key: str) -> str:
+    """Turn a camelCase predicate/action name into spaced lower-case words (agent-legible)."""
+    return "".join(f" {c.lower()}" if c.isupper() else c for c in key).strip()
+
+
+def _humanize_value(value) -> str:
+    """Render a Graph predicate/action value (list, recipient list, bool, enum, range) legibly."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):  # recipient: {"emailAddress": {"name", "address"}}
+                addr = (item.get("emailAddress") or {})
+                parts.append(addr.get("address") or addr.get("name") or json.dumps(item))
+            else:
+                parts.append(str(item))
+        return ", ".join(parts)
+    if isinstance(value, dict):  # e.g. withinSizeRange {minimumSize, maximumSize}
+        return ", ".join(f"{_humanize_key(k)} {v}" for k, v in value.items())
+    return str(value)
+
+
+def _summarize_clauses(clauses: dict, folders: dict | None = None) -> list:
+    """Summarize whichever conditions/actions are present, skipping empty/false ones.
+
+    ``folders`` (id→displayName) resolves move/copy-to-folder action ids to legible names; an
+    unresolved id falls back to the raw id so the output never misrepresents the target.
+    """
+    folders = folders or {}
+    lines = []
+    for key, value in (clauses or {}).items():
+        if value in (None, [], {}, "", False):
+            continue  # absent predicate/action — don't pretend it's set
+        if key in _FOLDER_ACTION_KEYS and isinstance(value, str) and value in folders:
+            rendered = f'"{folders[value]}"'
+        else:
+            rendered = _humanize_value(value)
+        lines.append(f"{_humanize_key(key)}: {rendered}")
+    return lines
+
+
+def _render_rules(rules: list, fmt: str, folders: dict | None = None) -> str:
     if fmt == "detailed":
         return json.dumps(rules, indent=2)
     if not rules:
         return "No inbox message rules."
     out = []
     for r in rules:
-        conds = r.get("conditions") or {}
-        hc = conds.get("headerContains") or []
-        action = r.get("actions") or {}
-        folder = action.get("moveToFolder") or ""
-        out.append(
+        conds = _summarize_clauses(r.get("conditions") or {}, folders)
+        actions = _summarize_clauses(r.get("actions") or {}, folders)
+        line = (
             f'- "{r.get("displayName", "(unnamed)")}"'
             f"{'  enabled' if r.get('isEnabled', True) else '  disabled'}"
-            f"\n    if header contains: {hc or '(other criteria)'}"
-            f"\n    → move to folder id: {folder or '(other action)'}"
+            f"\n    if   {'; '.join(conds) or '(no conditions)'}"
+            f"\n    then {'; '.join(actions) or '(no actions)'}"
         )
+        out.append(line)
     out.append(f"{len(rules)} rule(s). Pass --format detailed for ids needed by rule-remove.")
     return "\n".join(out)
 
@@ -669,7 +762,10 @@ def cmd_rule_list(args) -> int:
     """Enumerate existing inbox message rules (FR-007). Rules are mailbox settings (MailboxSettings.Read)."""
     tok = _authed_token("MailboxSettings.Read")
     data = _graph_get(tok["access_token"], "/me/mailFolders/inbox/messageRules")
-    print(_render_rules(data.get("value", []), args.format))
+    rules = data.get("value", [])
+    # Resolve folder ids to names only when needed for the legible (concise) view.
+    folders = _folder_name_map(tok["access_token"]) if args.format != "detailed" and rules else {}
+    print(_render_rules(rules, args.format, folders))
     return 0
 
 

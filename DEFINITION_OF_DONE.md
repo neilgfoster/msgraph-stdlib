@@ -39,7 +39,10 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 ## Quality / hygiene
 
 - [ ] **Offline-testable.** Classification/verification/output-shaping logic is unit-tested without
-      network (Graph HTTP boundary mockable). Tests pass with stdlib only.
+      network (Graph HTTP boundary mockable). Tests pass with stdlib only. **Includes real-URL
+      construction coverage** (`tests/test_url_construction.py`): each verb's URL is built through the
+      real path and asserted free of raw spaces/control characters — the `_http`-mock tests alone
+      missed a malformed `$orderby` that crashed the first live run (feature 002).
 - [ ] **Two-tier layout.** Shippable payload lives under `plugin/` (`plugin/.claude-plugin/plugin.json`,
       `plugin/skills/`, `plugin/src/msgraph/`); the root carries `.claude-plugin/marketplace.json`
       whose plugin `source` resolves to `./plugin`.
@@ -53,7 +56,15 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 
 ## Acceptance demo (the working slice)
 
-A reviewer can, from a clean checkout + a one-time Azure app reg:
+**One-time Azure app reg prerequisites** (verified on the first live run — see auth-login SKILL.md
+for the full walkthrough): a personal Microsoft account has **no tenant** by default, so you must
+create one via the Azure free trial (card-verified; tenant + app reg are free forever after the trial
+lapses); register the app at **entra.microsoft.com** (not portal.azure.com) as **Personal Microsoft
+accounts only**, blank redirect URI, **Allow public client flows = Yes** (Authentication → Settings
+sub-tab), delegated `Mail.Read` + `MailboxSettings.Read` (+ `MailboxSettings.ReadWrite`); export
+`MSGRAPH_CLIENT_ID` and `MSGRAPH_TENANT_ID="consumers"`.
+
+A reviewer can, from a clean checkout + the one-time Azure app reg above:
 
 1. `auth-login` (read-only) → succeeds.
 2. `mail-list` → sees real inbox messages.

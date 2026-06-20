@@ -101,7 +101,9 @@ or advertise it.
 reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
 
 <!-- SPECKIT START -->
-Active feature plan: `specs/001-msgraph-mail-rules/plan.md` (spec, research, data-model,
-contracts/tools.md, quickstart alongside it). Read it for the technical context, the stdlib-only
-device-code design, the `TOOLS` catalog contract, and the safety-model decisions before implementing.
+Active feature plan: `specs/002-fix-graph-query-encoding/plan.md` (defect fix: percent-encode all
+Graph query params + real-URL regression coverage + Azure setup docs). Foundation feature plan:
+`specs/001-msgraph-mail-rules/plan.md` (spec, research, data-model, contracts/tools.md, quickstart
+alongside it) — read it for the technical context, the stdlib-only device-code design, the `TOOLS`
+catalog contract, and the safety-model decisions before implementing.
 <!-- SPECKIT END -->
