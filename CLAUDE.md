@@ -101,9 +101,11 @@ or advertise it.
 reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
 
 <!-- SPECKIT START -->
-Active feature plan: `specs/002-fix-graph-query-encoding/plan.md` (defect fix: percent-encode all
-Graph query params + real-URL regression coverage + Azure setup docs). Foundation feature plan:
-`specs/001-msgraph-mail-rules/plan.md` (spec, research, data-model, contracts/tools.md, quickstart
-alongside it) — read it for the technical context, the stdlib-only device-code design, the `TOOLS`
-catalog contract, and the safety-model decisions before implementing.
+Active feature plan: `specs/003-categorise-and-search-folders/plan.md` (extend the kernel with
+category-assigning rules + category-ensure under the existing rule-authoring scope, and
+search-folder create/list/remove behind a NEW `Mail.ReadWrite` auth tier `--mode folders`; research,
+data-model, contracts/tools.md, quickstart alongside it). Prior feature plans:
+`specs/002-fix-graph-query-encoding/plan.md` (percent-encode Graph query params + real-URL coverage)
+and `specs/001-msgraph-mail-rules/plan.md` (foundation: stdlib-only device-code design, `TOOLS`
+catalog contract, safety-model decisions) — read them for the technical context before implementing.
 <!-- SPECKIT END -->

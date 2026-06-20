@@ -92,6 +92,11 @@ class DescribeTest(unittest.TestCase):
         "rule-verify",
         "rule-create",
         "rule-remove",
+        "category-list",
+        "category-ensure",
+        "searchfolder-list",
+        "searchfolder-create",
+        "searchfolder-remove",
     }
 
     def test_catalog_lists_every_verb_with_required_fields(self):
@@ -115,9 +120,30 @@ class DescribeTest(unittest.TestCase):
             client.cmd_describe(_Args(name="does-not-exist"))
 
     def test_read_only_verbs_advertise_read_only(self):
-        for name in ("mail-list", "mail-get", "rule-list", "rule-verify"):
+        read_only = (
+            "mail-list",
+            "mail-get",
+            "rule-list",
+            "rule-verify",
+            "category-list",
+            "searchfolder-list",
+        )
+        for name in read_only:
             tool = next(t for t in client.TOOLS if t["name"] == name)
             self.assertTrue(tool["annotations"]["readOnlyHint"], f"{name} should be read-only")
+
+    def test_catalog_scopes_match_the_ratchet(self):
+        # The TOOLS scope strings are the single source of truth for the verb→scope matrix.
+        want = {
+            "category-list": "MailboxSettings.Read",
+            "category-ensure": "MailboxSettings.ReadWrite",
+            "searchfolder-list": "Mail.Read",
+            "searchfolder-create": "Mail.ReadWrite",
+            "searchfolder-remove": "Mail.ReadWrite",
+        }
+        for name, scope in want.items():
+            tool = next(t for t in client.TOOLS if t["name"] == name)
+            self.assertEqual(tool["scope"], scope, f"{name} scope drift")
 
 
 # ================================================================================================
@@ -415,6 +441,268 @@ class RuleRemoveTest(StatePathMixin):
         self.assertTrue(url.endswith("/me/mailFolders/inbox/messageRules/r1"))
         # never a message-level call
         self.assertNotIn("/me/messages", url)
+
+
+# ================================================================================================
+# T017 — US1: category-assigning rules + category list/ensure
+# ================================================================================================
+class CategoryTest(StatePathMixin):
+    def _capture(self, fn, args):
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(fn(args), 0)
+        return buf.getvalue()
+
+    def test_category_list_read_scope_and_shaping(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        cats = {"value": [{"id": "c1", "displayName": "Needs attention", "color": "preset9"}]}
+        rec = _HttpRecorder(lambda method, url, **kw: cats)
+        client._http = rec
+        out = self._capture(client.cmd_category_list, _Args(format="concise"))
+        self.assertIn("Needs attention", out)
+        self.assertIn("preset9", out)
+        self.assertEqual(rec.methods(), ["GET"])  # read-only
+
+    def test_category_list_refuses_read_token_missing(self):
+        with self.assertRaises(client.SteerError):
+            client.cmd_category_list(_Args(format="concise"))
+
+    def test_ensure_creates_when_absent(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+
+        def responder(method, url, **kw):
+            if method == "GET":
+                return {"value": []}
+            return {"id": "c-new", "displayName": "Needs attention", "color": "preset9"}
+
+        rec = _HttpRecorder(responder)
+        client._http = rec
+        self._capture(client.cmd_category_ensure, _Args(name="Needs attention", color="preset9"))
+        post = next((c for c in rec.calls if c[0] == "POST"), None)
+        self.assertIsNotNone(post, "absent category must be POSTed")
+        self.assertEqual(post[1], f"{client.GRAPH}/me/outlook/masterCategories")
+        self.assertEqual(post[3], {"displayName": "Needs attention", "color": "preset9"})
+
+    def test_ensure_is_noop_when_present(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        cats = {"value": [{"id": "c1", "displayName": "needs ATTENTION", "color": "preset5"}]}
+        rec = _HttpRecorder(lambda method, url, **kw: cats)
+        client._http = rec
+        out = self._capture(client.cmd_category_ensure, _Args(name="Needs attention", color="preset9"))
+        self.assertIn("already exists", out)
+        self.assertNotIn("POST", rec.methods())  # case-insensitive match → no create
+
+    def test_ensure_refuses_without_write_scope(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        with self.assertRaises(client.SteerError):
+            client.cmd_category_ensure(_Args(name="X", color="preset9"))
+
+    def test_rule_create_assign_category_shapes_action_and_ensures(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["List-Unsubscribe"], 4)
+
+        def responder(method, url, **kw):
+            if method == "GET" and "masterCategories" in url:
+                return {"value": []}  # category absent → ensure creates it
+            if method == "POST" and "masterCategories" in url:
+                return {"id": "c-new", "displayName": "Needs attention", "color": "preset9"}
+            if method == "POST":  # the rule itself
+                return {"id": "rule-new"}
+            return {}
+
+        rec = _HttpRecorder(responder)
+        client._http = rec
+        self._capture(
+            client.cmd_rule_create,
+            _Args(
+                name="Flag",
+                header_contains=["List-Unsubscribe"],
+                move_to_folder=None,
+                assign_category=["Needs attention"],
+            ),
+        )
+        rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
+        actions = rule_post[3]["actions"]
+        self.assertEqual(actions["assignCategories"], ["Needs attention"])
+        self.assertNotIn("moveToFolder", actions)  # category-only rule
+        self.assertNotIn("delete", actions)
+        # the category was ensured (a POST to masterCategories happened before the rule POST)
+        self.assertTrue(any(c[0] == "POST" and "masterCategories" in c[1] for c in rec.calls))
+
+    def test_rule_create_combined_move_and_category(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["List-Unsubscribe"], 2)
+
+        def responder(method, url, **kw):
+            if "/me/mailFolders?" in url:
+                return {"value": [{"id": "f-1", "displayName": "News"}]}
+            if "masterCategories" in url:
+                return {"value": [{"id": "c1", "displayName": "Needs attention", "color": "preset9"}]}
+            if method == "POST":
+                return {"id": "rule-new"}
+            return {}
+
+        rec = _HttpRecorder(responder)
+        client._http = rec
+        self._capture(
+            client.cmd_rule_create,
+            _Args(
+                name="Both",
+                header_contains=["List-Unsubscribe"],
+                move_to_folder="News",
+                assign_category=["Needs attention"],
+            ),
+        )
+        rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
+        actions = rule_post[3]["actions"]
+        self.assertEqual(actions["moveToFolder"], "f-1")
+        self.assertEqual(actions["assignCategories"], ["Needs attention"])
+
+    def test_rule_create_refuses_when_no_action(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["X"], 1)
+        client._http = _HttpRecorder()
+        with self.assertRaises(client.SteerError):
+            client.cmd_rule_create(
+                _Args(name="N", header_contains=["X"], move_to_folder=None, assign_category=None)
+            )
+
+    def test_rule_create_category_still_requires_verify(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # write scope, no marker
+        client._http = _HttpRecorder()
+        with self.assertRaises(client.SteerError):
+            client.cmd_rule_create(
+                _Args(name="N", header_contains=["Unverified"], move_to_folder=None, assign_category=["Lbl"])
+            )
+
+
+# ================================================================================================
+# T030 — US2: search-folder create / list / remove + the new scope tier
+# ================================================================================================
+class SearchFolderTest(StatePathMixin):
+    def _capture(self, fn, args):
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(fn(args), 0)
+        return buf.getvalue()
+
+    def test_filter_query_for_category_escapes_quotes(self):
+        self.assertEqual(
+            client._filter_query_for_category("Needs attention"),
+            "categories/any(c:c eq 'Needs attention')",
+        )
+        self.assertEqual(
+            client._filter_query_for_category("O'Brien"),
+            "categories/any(c:c eq 'O''Brien')",
+        )
+
+    def test_create_refuses_without_mail_readwrite(self):
+        # A read OR rules token lacks Mail.ReadWrite → structural ratchet refusal (FR-008/FR-012).
+        for scope in (
+            "Mail.Read MailboxSettings.Read offline_access",
+            "Mail.Read MailboxSettings.ReadWrite offline_access",
+        ):
+            self._sign_in(scope)
+            with self.assertRaises(client.SteerError):
+                client.cmd_searchfolder_create(
+                    _Args(
+                        name="N",
+                        category="Needs attention",
+                        filter_query=None,
+                        source_folders=None,
+                        include_nested=True,
+                    )
+                )
+
+    def test_create_refuses_without_filter(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        client._http = _HttpRecorder()
+        with self.assertRaises(client.SteerError):
+            client.cmd_searchfolder_create(
+                _Args(name="N", category=None, filter_query=None, source_folders=None, include_nested=True)
+            )
+
+    def test_create_shapes_body_with_odata_type(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf-new"})
+        client._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Needs attention",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox"],
+                include_nested=True,
+            ),
+        )
+        post = next(c for c in rec.calls if c[0] == "POST")
+        self.assertTrue(post[1].endswith("/me/mailFolders/searchfolders/childFolders"))
+        body = post[3]
+        self.assertEqual(body["@odata.type"], "microsoft.graph.mailSearchFolder")
+        self.assertEqual(body["includeNestedFolders"], True)
+        self.assertEqual(body["sourceFolderIds"], ["inbox"])  # well-known name passed through
+        self.assertEqual(body["filterQuery"], "categories/any(c:c eq 'Needs attention')")
+
+    def test_create_explicit_filter_overrides_category(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf"})
+        client._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Big",
+                category="Ignored",
+                filter_query="hasAttachments eq true",
+                source_folders=None,
+                include_nested=False,
+            ),
+        )
+        body = next(c for c in rec.calls if c[0] == "POST")[3]
+        self.assertEqual(body["filterQuery"], "hasAttachments eq true")
+        self.assertEqual(body["includeNestedFolders"], False)
+        self.assertEqual(body["sourceFolderIds"], ["inbox"])  # default
+
+    def test_list_read_scope_only(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        payload = {
+            "value": [
+                {
+                    "id": "sf1",
+                    "displayName": "Needs attention",
+                    "filterQuery": "categories/any(c:c eq 'Needs attention')",
+                    "includeNestedFolders": True,
+                    "sourceFolderIds": ["inbox"],
+                }
+            ]
+        }
+        rec = _HttpRecorder(lambda method, url, **kw: payload)
+        client._http = rec
+        out = self._capture(client.cmd_searchfolder_list, _Args(format="concise"))
+        self.assertIn("Needs attention", out)
+        self.assertIn("sf1", out)
+        self.assertEqual(rec.methods(), ["GET"])
+
+    def test_remove_issues_one_delete_on_the_folder_not_mail(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        rec = _HttpRecorder()
+        client._http = rec
+        self._capture(client.cmd_searchfolder_remove, _Args(folder_id="sf1"))
+        self.assertEqual(rec.methods(), ["DELETE"])
+        url = rec.calls[0][1]
+        self.assertTrue(url.endswith("/me/mailFolders/sf1"))
+        self.assertNotIn("/me/messages", url)  # never a message-level delete
+
+    def test_remove_refuses_without_mail_readwrite(self):
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # rules tier, not folders
+        with self.assertRaises(client.SteerError):
+            client.cmd_searchfolder_remove(_Args(folder_id="sf1"))
 
 
 if __name__ == "__main__":

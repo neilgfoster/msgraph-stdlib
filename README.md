@@ -3,12 +3,17 @@
 A Claude Code plugin for Microsoft Graph (Outlook) that is **stdlib-only, zero-dependency, and
 zero-backend** by design — just `urllib` + `json`, no SDK, no server process, no install friction.
 
-It gives an agent two capabilities, with safety built into the *structure*, not the behaviour:
+It gives an agent these capabilities, with safety built into the *structure*, not the behaviour:
 
 1. **Read Outlook mail** — list/get messages and their headers, read-only.
 2. **Author native Outlook message rules** — create / list / verify / remove server-side
    `messageRule`s, so deterministic mail organisation lives *in Outlook* (runs even when nothing
-   else is, visible and editable in Outlook's own UI, reversible by deleting one rule).
+   else is, visible and editable in Outlook's own UI, reversible by deleting one rule). A rule can
+   file to a folder **and/or assign a coloured category**.
+3. **Manage master categories** — list and create-if-absent the coloured labels a rule assigns, so
+   they always render with a colour.
+4. **Create category search folders** — virtual `mailSearchFolder` views over a category, behind a
+   *separate* `Mail.ReadWrite` sign-in tier. A search folder never moves or deletes mail.
 
 ## Verbs (skills)
 
@@ -17,13 +22,18 @@ Each skill is a thin wrapper over the stdlib kernel; the runtime catalog is the 
 
 | Skill | Scope it needs | What it does |
 |---|---|---|
-| `auth-login` | `Mail.Read + MailboxSettings.Read` (read, default) or `+ MailboxSettings.ReadWrite` (`--mode rules`) | Device-code sign-in; caches the token at the XDG path and refreshes it silently. **Run first.** |
+| `auth-login` | `Mail.Read + MailboxSettings.Read` (read, default), `+ MailboxSettings.ReadWrite` (`--mode rules`), or `Mail.ReadWrite` (`--mode folders`) | Device-code sign-in; caches the token at the XDG path and refreshes it silently. **Run first.** |
 | `mail-list` | `Mail.Read` | List recent inbox messages (concise/detailed, pagination default 25). |
 | `mail-get` | `Mail.Read` | Fetch one message incl. its internet headers (e.g. `List-Unsubscribe`). |
 | `rule-list` | `MailboxSettings.Read` | Enumerate existing inbox rules agent-legibly. |
 | `rule-verify` | `Mail.Read` | Compute a candidate rule's **read-only catch-set** and record the verification gate. |
-| `rule-create` | `MailboxSettings.ReadWrite` | Install a verified move-to-folder rule; refuses unverified criteria. |
+| `rule-create` | `MailboxSettings.ReadWrite` | Install a verified rule that files to a folder **and/or assigns a category**; refuses unverified criteria. |
 | `rule-remove` | `MailboxSettings.ReadWrite` | Delete a rule by id (the reversibility primitive). |
+| `category-list` | `MailboxSettings.Read` | List the mailbox master categories (name + colour). |
+| `category-ensure` | `MailboxSettings.ReadWrite` | Create a coloured category if absent (idempotent). |
+| `searchfolder-list` | `Mail.Read` | Enumerate existing virtual search folders agent-legibly. |
+| `searchfolder-create` | `Mail.ReadWrite` (`--mode folders`) | Create a virtual category search-folder view; never touches mail. |
+| `searchfolder-remove` | `Mail.ReadWrite` (`--mode folders`) | Delete a search folder by id (affects only the view, never mail). |
 
 ## Why stdlib / zero-backend
 
@@ -36,14 +46,16 @@ with no supply-chain surface beyond the standard library.
 
 - **Read-only by default.** Auth requests **`Mail.Read` only**. The plugin physically cannot move,
   archive, or delete a message — the token carries no write grant. Safety is structural.
-- **Scope ratchet.** Writing rules requires the *separate* `MailboxSettings.ReadWrite` scope,
-  granted only when you opt into rule authoring. Escalation is deliberate and auditable (the OAuth
-  consent is the record).
+- **Scope ratchet.** Writing rules/categories requires the *separate* `MailboxSettings.ReadWrite`
+  scope, and creating search folders requires a *further separate* `Mail.ReadWrite` tier
+  (`--mode folders`) — each granted only when you opt in. Escalation is deliberate and auditable (the
+  OAuth consent is the record); a read or rule-authoring token cannot create a search folder.
 - **Verify before install.** A candidate rule's **real catch-set is computed read-only** and shown
   *before* the rule is created — a rule is never trusted in the abstract (Graph `headerContains` is
   coarse substring matching, so it must be checked against actual mail).
-- **Reversible by construction.** Rules file mail to a folder; they never delete. Removing one rule
-  undoes the organisation.
+- **Reversible by construction.** Rules file or label mail; they never delete. Removing one rule
+  undoes the organisation. Search folders are virtual saved views — creating or removing one never
+  moves or deletes a message.
 
 ## Layout
 
@@ -64,7 +76,8 @@ CLAUDE.md                                # grounding + build plan for a Claude C
 
 An **Azure AD app registration** (public client, device-code / public-client flow **enabled**). Add
 the delegated permissions `Mail.Read` + `MailboxSettings.Read` (read mail and list rules), plus
-`MailboxSettings.ReadWrite` only if you want rule authoring. No cost, no admin consent for personal
+`MailboxSettings.ReadWrite` only if you want rule/category authoring, plus `Mail.ReadWrite` only if
+you want to create search folders (`--mode folders`). No cost, no admin consent for personal
 accounts. Then export the resulting identifiers before first sign-in (read from the environment,
 never hardcoded):
 
