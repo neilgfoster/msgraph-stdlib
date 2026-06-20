@@ -296,11 +296,46 @@ class RuleListTest(StatePathMixin):
         # No false "(other criteria)" / "(other action)" placeholder leaks through.
         self.assertNotIn("other criteria", out)
 
-    def _render(self, payload):
+    def test_resolves_move_to_folder_id_to_name(self):
+        # rule-list should show the folder NAME, not the opaque id, for move/copy actions.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rules = {
+            "value": [
+                {
+                    "id": "r3",
+                    "displayName": "Filed",
+                    "isEnabled": True,
+                    "conditions": {"senderContains": ["x@y.com"]},
+                    "actions": {"moveToFolder": "child-1", "copyToFolder": "unknown-id"},
+                }
+            ]
+        }
+        folders = {
+            "value": [
+                {
+                    "id": "top-1",
+                    "displayName": "Top",
+                    "childFolders": [{"id": "child-1", "displayName": "House 2026"}],
+                }
+            ]
+        }
+        out = self._render(rules, folders)
+        self.assertIn('move to folder: "House 2026"', out)  # nested child resolved
+        self.assertNotIn("child-1", out)
+        self.assertIn("copy to folder: unknown-id", out)  # unresolved id shown raw, not hidden
+
+    def _render(self, payload, folders=None):
         import contextlib
         import io
 
-        client._http = _HttpRecorder(lambda method, url, **kw: payload)
+        def responder(method, url, **kw):
+            if "/mailFolders/inbox/messageRules" in url:
+                return payload
+            if "/mailFolders" in url:
+                return folders or {"value": []}
+            return payload
+
+        client._http = _HttpRecorder(responder)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.assertEqual(client.cmd_rule_list(_Args(format="concise")), 0)

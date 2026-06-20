@@ -546,6 +546,41 @@ def _resolve_folder_id(token: str, name: str) -> str:
     )
 
 
+# Action keys whose value is an opaque folder id we can resolve to a display name (read-only).
+_FOLDER_ACTION_KEYS = ("moveToFolder", "copyToFolder")
+
+
+def _folder_name_map(token: str) -> dict:
+    """Best-effort id→displayName for mail folders (top level + one level of children).
+
+    Lets rule-list show move/copy-to-folder targets by name. Folders nested deeper than one level
+    may stay unresolved; those fall back to the raw id so the output never lies about which folder a
+    rule targets. Read-only (a single GET); failures degrade silently to ids.
+    """
+    names: dict = {}
+    try:
+        data = _graph_get(
+            token,
+            "/me/mailFolders",
+            params={
+                "$top": 200,
+                "$select": "id,displayName",
+                "$expand": "childFolders($select=id,displayName)",
+            },
+        )
+    except SteerError:
+        return names
+
+    def walk(folders):
+        for f in folders:
+            if f.get("id"):
+                names[f["id"]] = f.get("displayName", "")
+            walk(f.get("childFolders") or [])
+
+    walk(data.get("value", []))
+    return names
+
+
 # ================================================================================================
 # Verb implementations
 # ================================================================================================
@@ -688,25 +723,34 @@ def _humanize_value(value) -> str:
     return str(value)
 
 
-def _summarize_clauses(clauses: dict) -> list:
-    """Summarize whichever conditions/actions are present, skipping empty/false ones."""
+def _summarize_clauses(clauses: dict, folders: dict | None = None) -> list:
+    """Summarize whichever conditions/actions are present, skipping empty/false ones.
+
+    ``folders`` (id→displayName) resolves move/copy-to-folder action ids to legible names; an
+    unresolved id falls back to the raw id so the output never misrepresents the target.
+    """
+    folders = folders or {}
     lines = []
     for key, value in (clauses or {}).items():
         if value in (None, [], {}, "", False):
             continue  # absent predicate/action — don't pretend it's set
-        lines.append(f"{_humanize_key(key)}: {_humanize_value(value)}")
+        if key in _FOLDER_ACTION_KEYS and isinstance(value, str) and value in folders:
+            rendered = f'"{folders[value]}"'
+        else:
+            rendered = _humanize_value(value)
+        lines.append(f"{_humanize_key(key)}: {rendered}")
     return lines
 
 
-def _render_rules(rules: list, fmt: str) -> str:
+def _render_rules(rules: list, fmt: str, folders: dict | None = None) -> str:
     if fmt == "detailed":
         return json.dumps(rules, indent=2)
     if not rules:
         return "No inbox message rules."
     out = []
     for r in rules:
-        conds = _summarize_clauses(r.get("conditions") or {})
-        actions = _summarize_clauses(r.get("actions") or {})
+        conds = _summarize_clauses(r.get("conditions") or {}, folders)
+        actions = _summarize_clauses(r.get("actions") or {}, folders)
         line = (
             f'- "{r.get("displayName", "(unnamed)")}"'
             f"{'  enabled' if r.get('isEnabled', True) else '  disabled'}"
@@ -722,7 +766,10 @@ def cmd_rule_list(args) -> int:
     """Enumerate existing inbox message rules (FR-007). Rules are mailbox settings (MailboxSettings.Read)."""
     tok = _authed_token("MailboxSettings.Read")
     data = _graph_get(tok["access_token"], "/me/mailFolders/inbox/messageRules")
-    print(_render_rules(data.get("value", []), args.format))
+    rules = data.get("value", [])
+    # Resolve folder ids to names only when needed for the legible (concise) view.
+    folders = _folder_name_map(tok["access_token"]) if args.format != "detailed" and rules else {}
+    print(_render_rules(rules, args.format, folders))
     return 0
 
 
