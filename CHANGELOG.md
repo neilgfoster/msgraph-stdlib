@@ -15,6 +15,16 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.2.0] - 2026-06-20
+
+### Added
+
+- **Folder audit** — `folder-list` enumerates the mailbox's real mail folders as a nested tree (each
+  folder's name, total/unread message counts, child count; ids + `parentFolderId` in detailed mode),
+  read-only under the existing `Mail.Read` tier. `GET /me/mailFolders` recursed through `childFolders`,
+  with `--include_hidden` for hidden folders. Distinct from `searchfolder-list`: the virtual
+  Search Folders node is excluded so the two verbs never double-report.
+
 ## [0.1.0] - 2026-06-20
 
 First release. A stdlib-only, zero-backend Claude Code plugin for Microsoft Graph (Outlook): read
