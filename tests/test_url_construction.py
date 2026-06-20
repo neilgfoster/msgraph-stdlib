@@ -196,6 +196,37 @@ class VerbUrlConstructionTest(unittest.TestCase):
         for url in self.urls:
             _assert_valid_url(self, url)
 
+    # --- message-move: per-message MOVE verb (opaque ids in the path) ---------------------------
+
+    def test_message_move_url_with_awkward_id_is_valid(self):
+        # Opaque message ids land in the /move path; assert the built URL stays valid (the $orderby lesson).
+        self._run(
+            client.cmd_message_move,
+            _Args(
+                message_ids=["AAMk=ADk/+ id"],
+                destination_folder="archive",
+                dry_run=False,
+                format="concise",
+            ),
+        )
+        self.assertTrue(any(u.endswith("/move") for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_message_move_dry_run_get_url_is_valid(self):
+        self._run(
+            client.cmd_message_move,
+            _Args(
+                message_ids=["AAMk=ADk/+ id"],
+                destination_folder="archive",
+                dry_run=True,
+                format="concise",
+            ),
+        )
+        self.assertTrue(self.urls)
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
 
 if __name__ == "__main__":
     unittest.main()

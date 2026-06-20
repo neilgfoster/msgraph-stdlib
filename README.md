@@ -22,9 +22,10 @@ Each skill is a thin wrapper over the stdlib kernel; the runtime catalog is the 
 
 | Skill | Scope it needs | What it does |
 |---|---|---|
-| `auth-login` | `Mail.Read + MailboxSettings.Read` (read, default), `+ MailboxSettings.ReadWrite` (`--mode rules`), or `Mail.ReadWrite` (`--mode folders`) | Device-code sign-in; caches the token at the XDG path and refreshes it silently. **Run first.** |
+| `auth-login` | `Mail.Read + MailboxSettings.Read` (read, default), `+ MailboxSettings.ReadWrite` (`--mode rules`), or `Mail.ReadWrite` (`--mode folders` / `--mode messages`) | Device-code sign-in; caches the token at the XDG path and refreshes it silently. **Run first.** |
 | `mail-list` | `Mail.Read` | List recent inbox messages (concise/detailed, pagination default 25). |
 | `mail-get` | `Mail.Read` | Fetch one message incl. its internet headers (e.g. `List-Unsubscribe`). |
+| `message-move` | `Mail.ReadWrite` (`--mode messages`) | Move message(s) to a folder (MOVE only, never delete; `--dry_run` previews). Re-files backlog mail that incoming-only rules can't touch; reversible. |
 | `rule-list` | `MailboxSettings.Read` | Enumerate existing inbox rules agent-legibly. |
 | `rule-verify` | `Mail.Read` | Compute a candidate rule's **read-only catch-set** and record the verification gate. |
 | `rule-create` | `MailboxSettings.ReadWrite` | Install a verified rule that files to a folder **and/or assigns a category**; refuses unverified criteria. |
@@ -44,18 +45,23 @@ with no supply-chain surface beyond the standard library.
 
 ## Safety model (least privilege + verify-then-reversible)
 
-- **Read-only by default.** Auth requests **`Mail.Read` only**. The plugin physically cannot move,
-  archive, or delete a message — the token carries no write grant. Safety is structural.
-- **Scope ratchet.** Writing rules/categories requires the *separate* `MailboxSettings.ReadWrite`
-  scope, and creating search folders requires a *further separate* `Mail.ReadWrite` tier
-  (`--mode folders`) — each granted only when you opt in. Escalation is deliberate and auditable (the
-  OAuth consent is the record); a read or rule-authoring token cannot create a search folder.
+- **Read-only by default.** Auth requests **`Mail.Read` only**. A read token physically cannot move,
+  archive, or delete a message — it carries no write grant. Safety is structural.
+- **Scope ratchet.** Each write capability is a *separate*, deliberately-consented tier: rule/category
+  authoring needs `MailboxSettings.ReadWrite`; creating search folders needs `Mail.ReadWrite`
+  (`--mode folders`); moving messages needs `Mail.ReadWrite` (`--mode messages`). Escalation is
+  deliberate and auditable (the OAuth consent is the record); a read or rule-authoring token cannot
+  move a message or create a search folder.
+- **Never delete — by construction.** No verb deletes a message and **no delete-capable scope is ever
+  requested**, so deletion is structurally impossible. `message-move` *moves* mail (reversible: move
+  it back); it is the only per-message mutation, gated behind its own scope and a `--dry_run` preview.
 - **Verify before install.** A candidate rule's **real catch-set is computed read-only** and shown
   *before* the rule is created — a rule is never trusted in the abstract (Graph `headerContains` is
-  coarse substring matching, so it must be checked against actual mail).
+  coarse substring matching, so it must be checked against actual mail). `message-move --dry_run`
+  applies the same preview-then-act discipline to moves.
 - **Reversible by construction.** Rules file or label mail; they never delete. Removing one rule
   undoes the organisation. Search folders are virtual saved views — creating or removing one never
-  moves or deletes a message.
+  moves or deletes a message. A move is undone by moving back.
 
 ## Layout
 
@@ -77,7 +83,7 @@ CLAUDE.md                                # grounding + build plan for a Claude C
 An **Azure AD app registration** (public client, device-code / public-client flow **enabled**). Add
 the delegated permissions `Mail.Read` + `MailboxSettings.Read` (read mail and list rules), plus
 `MailboxSettings.ReadWrite` only if you want rule/category authoring, plus `Mail.ReadWrite` only if
-you want to create search folders (`--mode folders`). No cost, no admin consent for personal
+you want to create search folders (`--mode folders`) or move messages (`--mode messages`). No cost, no admin consent for personal
 accounts. Then export the resulting identifiers before first sign-in (read from the environment,
 never hardcoded):
 
@@ -121,7 +127,7 @@ grep -rnE '^\s*(import|from)\s+(msal|azure|requests|urllib3|httpx|aiohttp|pydant
 ## Status
 
 v0.1 implemented spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`): the
-seven verbs above, the runtime `describe` catalog, and offline unit tests (Graph HTTP boundary
+verbs above, the runtime `describe` catalog, and offline unit tests (Graph HTTP boundary
 mocked). Live auth/Graph behaviour requires the one-time Azure app registration above. See
 `DEFINITION_OF_DONE.md` for the target and `CLAUDE.md` for the build plan.
 

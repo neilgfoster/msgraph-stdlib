@@ -89,6 +89,7 @@ class DescribeTest(unittest.TestCase):
         "auth-login",
         "mail-list",
         "mail-get",
+        "message-move",
         "rule-list",
         "rule-verify",
         "rule-create",
@@ -142,6 +143,7 @@ class DescribeTest(unittest.TestCase):
             "searchfolder-list": "Mail.Read",
             "searchfolder-create": "Mail.ReadWrite",
             "searchfolder-remove": "Mail.ReadWrite",
+            "message-move": "Mail.ReadWrite",
         }
         for name, scope in want.items():
             tool = next(t for t in client.TOOLS if t["name"] == name)
@@ -705,6 +707,80 @@ class SearchFolderTest(StatePathMixin):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # rules tier, not folders
         with self.assertRaises(client.SteerError):
             client.cmd_searchfolder_remove(_Args(folder_id="sf1"))
+
+
+# ================================================================================================
+# message-move — per-message MOVE verb (the new Mail.ReadWrite message-write tier). MOVE only.
+# ================================================================================================
+class MessageMoveTest(StatePathMixin):
+    def _capture(self, fn, args, expect=0):
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(fn(args), expect)
+        return buf.getvalue()
+
+    def test_refuses_without_mail_readwrite(self):
+        # read AND rules tiers both lack Mail.ReadWrite → structural ratchet refusal.
+        for scope in (
+            "Mail.Read MailboxSettings.Read offline_access",
+            "Mail.Read MailboxSettings.ReadWrite offline_access",
+        ):
+            self._sign_in(scope)
+            with self.assertRaises(client.SteerError):
+                client.cmd_message_move(
+                    _Args(message_ids=["m1"], destination_folder="archive", dry_run=False, format="concise")
+                )
+
+    def test_dry_run_writes_nothing_and_lists_set(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        msg = {"id": "m1", "subject": "Hello", "from": {"emailAddress": {"address": "a@b.c"}}}
+        rec = _HttpRecorder(lambda method, url, **kw: msg)
+        client._http = rec
+        out = self._capture(
+            client.cmd_message_move,
+            _Args(message_ids=["m1"], destination_folder="archive", dry_run=True, format="concise"),
+        )
+        self.assertIn("DRY RUN", out)
+        self.assertIn("Hello", out)
+        self.assertNotIn("POST", rec.methods())  # nothing written
+        self.assertNotIn("DELETE", rec.methods())  # never a delete
+
+    def test_move_posts_move_op_never_delete(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(lambda method, url, **kw: {"id": "new-m1"})
+        client._http = rec
+        out = self._capture(
+            client.cmd_message_move,
+            _Args(message_ids=["m1"], destination_folder="archive", dry_run=False, format="concise"),
+        )
+        self.assertEqual(rec.methods(), ["POST"])
+        post = rec.calls[0]
+        self.assertTrue(post[1].endswith("/me/messages/m1/move"))
+        self.assertEqual(post[3], {"destinationId": "archive"})  # well-known name verbatim
+        self.assertNotIn("DELETE", rec.methods())
+        self.assertIn("new-m1", out)
+        self.assertIn("Reversible", out)
+
+    def test_batch_safe_partial_failure_reports_per_message(self):
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def responder(method, url, **kw):
+            if url.endswith("/me/messages/bad/move"):
+                raise client.SteerError("Graph request failed (404)")
+            return {"id": "new"}
+
+        client._http = _HttpRecorder(responder)
+        out = self._capture(
+            client.cmd_message_move,
+            _Args(message_ids=["ok", "bad"], destination_folder="archive", dry_run=False, format="concise"),
+            expect=0,  # at least one succeeded → exit 0
+        )
+        self.assertIn("Moved 1/2", out)
+        self.assertIn("✓ ok", out)
+        self.assertIn("✗ bad", out)
 
 
 class FolderListTest(StatePathMixin):
