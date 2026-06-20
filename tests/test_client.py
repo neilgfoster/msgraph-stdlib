@@ -9,6 +9,7 @@ verify-then-install gate that make the safety model structural.
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -94,6 +95,7 @@ class DescribeTest(unittest.TestCase):
         "rule-remove",
         "category-list",
         "category-ensure",
+        "folder-list",
         "searchfolder-list",
         "searchfolder-create",
         "searchfolder-remove",
@@ -703,6 +705,99 @@ class SearchFolderTest(StatePathMixin):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # rules tier, not folders
         with self.assertRaises(client.SteerError):
             client.cmd_searchfolder_remove(_Args(folder_id="sf1"))
+
+
+class FolderListTest(StatePathMixin):
+    def _capture(self, fn, args):
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(fn(args), 0)
+        return buf.getvalue()
+
+    def _tree_responder(self):
+        """Two-level tree: Inbox (1 child) + Archive + the virtual Search Folders node."""
+        top = {
+            "value": [
+                {
+                    "id": "inbox",
+                    "displayName": "Inbox",
+                    "parentFolderId": "root",
+                    "totalItemCount": 1280,
+                    "unreadItemCount": 37,
+                    "childFolderCount": 1,
+                },
+                {
+                    "id": "archive",
+                    "displayName": "Archive",
+                    "parentFolderId": "root",
+                    "totalItemCount": 8901,
+                    "unreadItemCount": 0,
+                    "childFolderCount": 0,
+                },
+                {
+                    "id": "sfroot",
+                    "displayName": "Search Folders",
+                    "parentFolderId": "root",
+                    "totalItemCount": 0,
+                    "unreadItemCount": 0,
+                    "childFolderCount": 0,
+                },
+            ]
+        }
+        children = {
+            "value": [
+                {
+                    "id": "receipts",
+                    "displayName": "Receipts",
+                    "parentFolderId": "inbox",
+                    "totalItemCount": 412,
+                    "unreadItemCount": 0,
+                    "childFolderCount": 0,
+                }
+            ]
+        }
+
+        def responder(method, url, **kw):
+            return children if "childFolders" in url else top
+
+        return responder
+
+    def test_concise_renders_nested_tree_with_counts(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(self._tree_responder())
+        client._http = rec
+        out = self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
+        self.assertIn('"Inbox"', out)
+        self.assertIn("1280 total, 37 unread", out)
+        self.assertIn('  - "Receipts"', out)  # nested indentation
+        self.assertEqual(rec.methods(), ["GET", "GET"])  # top + inbox children only
+
+    def test_excludes_virtual_search_folders_node(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        client._http = _HttpRecorder(self._tree_responder())
+        out = self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
+        self.assertNotIn("Search Folders", out)
+        # Inbox, Archive, Receipts — three real folders, search-folder node dropped.
+        self.assertIn("3 mail folder(s)", out)
+
+    def test_detailed_emits_ids_and_parent(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        client._http = _HttpRecorder(self._tree_responder())
+        out = self._capture(client.cmd_folder_list, _Args(format="detailed", include_hidden=False))
+        data = json.loads(out)
+        self.assertEqual(data[0]["id"], "inbox")
+        self.assertEqual(data[0]["parentFolderId"], "root")
+        self.assertEqual(data[0]["children"][0]["displayName"], "Receipts")
+
+    def test_read_scope_only(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(self._tree_responder())
+        client._http = rec
+        self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
+        self.assertEqual(set(rec.methods()), {"GET"})  # never a write
 
 
 if __name__ == "__main__":
