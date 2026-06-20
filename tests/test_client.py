@@ -296,8 +296,8 @@ class RuleListTest(StatePathMixin):
         # No false "(other criteria)" / "(other action)" placeholder leaks through.
         self.assertNotIn("other criteria", out)
 
-    def test_resolves_move_to_folder_id_to_name(self):
-        # rule-list should show the folder NAME, not the opaque id, for move/copy actions.
+    def test_resolves_deeply_nested_folder_id_to_name(self):
+        # rule-list shows the folder NAME, resolved at ANY nesting depth, not the opaque id.
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
         rules = {
             "value": [
@@ -306,34 +306,38 @@ class RuleListTest(StatePathMixin):
                     "displayName": "Filed",
                     "isEnabled": True,
                     "conditions": {"senderContains": ["x@y.com"]},
-                    "actions": {"moveToFolder": "child-1", "copyToFolder": "unknown-id"},
+                    "actions": {"moveToFolder": "grandchild-1", "copyToFolder": "unknown-id"},
                 }
             ]
         }
-        folders = {
-            "value": [
-                {
-                    "id": "top-1",
-                    "displayName": "Top",
-                    "childFolders": [{"id": "child-1", "displayName": "House 2026"}],
-                }
-            ]
+        # Folder tree served across the child-folder endpoints (top → child → grandchild).
+        folder_tree = {
+            "/me/mailFolders": [{"id": "top-1", "displayName": "Top", "childFolderCount": 1}],
+            "/me/mailFolders/top-1/childFolders": [
+                {"id": "child-1", "displayName": "Mid", "childFolderCount": 1}
+            ],
+            "/me/mailFolders/child-1/childFolders": [
+                {"id": "grandchild-1", "displayName": "House 2026", "childFolderCount": 0}
+            ],
         }
-        out = self._render(rules, folders)
-        self.assertIn('move to folder: "House 2026"', out)  # nested child resolved
-        self.assertNotIn("child-1", out)
+        out = self._render(rules, folder_tree)
+        self.assertIn('move to folder: "House 2026"', out)  # depth-3 child resolved
+        self.assertNotIn("grandchild-1", out)
         self.assertIn("copy to folder: unknown-id", out)  # unresolved id shown raw, not hidden
 
-    def _render(self, payload, folders=None):
+    def _render(self, payload, folder_tree=None):
         import contextlib
         import io
 
         def responder(method, url, **kw):
-            if "/mailFolders/inbox/messageRules" in url:
+            if "/messageRules" in url:
                 return payload
-            if "/mailFolders" in url:
-                return folders or {"value": []}
-            return payload
+            if folder_tree:
+                for path, value in folder_tree.items():
+                    # Match the path portion of the URL, ignoring the query string.
+                    if url.split("?", 1)[0].endswith(path):
+                        return {"value": value}
+            return {"value": []}
 
         client._http = _HttpRecorder(responder)
         buf = io.StringIO()

@@ -551,33 +551,29 @@ _FOLDER_ACTION_KEYS = ("moveToFolder", "copyToFolder")
 
 
 def _folder_name_map(token: str) -> dict:
-    """Best-effort id→displayName for mail folders (top level + one level of children).
+    """id→displayName for all mail folders at any nesting depth.
 
-    Lets rule-list show move/copy-to-folder targets by name. Folders nested deeper than one level
-    may stay unresolved; those fall back to the raw id so the output never lies about which folder a
-    rule targets. Read-only (a single GET); failures degrade silently to ids.
+    Lets rule-list show move/copy-to-folder targets by name. Walks the folder tree breadth-first,
+    descending only into folders that report children (``childFolderCount``) so the number of GETs is
+    proportional to the folders-with-children, not the whole tree. Read-only; failures degrade
+    silently, leaving unresolved ids to fall back to the raw id so output never lies about the target.
     """
     names: dict = {}
+    params = {"$top": 200, "$select": "id,displayName,childFolderCount"}
+    # Queue of folder-listing paths to fetch; seed with the top level.
+    pending = ["/me/mailFolders"]
     try:
-        data = _graph_get(
-            token,
-            "/me/mailFolders",
-            params={
-                "$top": 200,
-                "$select": "id,displayName",
-                "$expand": "childFolders($select=id,displayName)",
-            },
-        )
+        while pending:
+            data = _graph_get(token, pending.pop(), params=params)
+            for f in data.get("value", []):
+                fid = f.get("id")
+                if not fid:
+                    continue
+                names[fid] = f.get("displayName", "")
+                if f.get("childFolderCount", 0):
+                    pending.append(f"/me/mailFolders/{urllib.parse.quote(fid, safe='')}/childFolders")
     except SteerError:
-        return names
-
-    def walk(folders):
-        for f in folders:
-            if f.get("id"):
-                names[f["id"]] = f.get("displayName", "")
-            walk(f.get("childFolders") or [])
-
-    walk(data.get("value", []))
+        pass  # partial map is fine — unresolved ids render as raw ids
     return names
 
 
