@@ -19,16 +19,19 @@ and the kernel polls until consent and caches the resulting token at
 `${XDG_STATE_HOME:-~/.local/state}/msgraph-stdlib/token.json` (`0600`, outside the repo, never
 committed). The refresh token (`offline_access`) is used to renew silently on later calls.
 
-**The two modes are the safety ratchet — choose the smallest that fits the task:**
+**The modes are the safety ratchet — choose the smallest that fits the task:**
 
 | Mode | Scopes granted | Lets you | Cannot |
 |---|---|---|---|
-| `read` (default) | `Mail.Read` + `MailboxSettings.Read` | `mail-list`, `mail-get`, `rule-list`, `rule-verify` | create/remove rules, mutate any mail |
-| `rules` | `Mail.Read` + `MailboxSettings.ReadWrite` | the above **plus** `rule-create`, `rule-remove` | mutate individual messages (no verb does) |
+| `read` (default) | `Mail.Read` + `MailboxSettings.Read` | `mail-list`, `mail-get`, `rule-list`, `rule-verify`, `category-list`, `folder-list`, `searchfolder-list` | create/remove rules, mutate any mail |
+| `rules` | `Mail.Read` + `MailboxSettings.ReadWrite` | the above **plus** `rule-create`, `rule-remove`, `category-ensure` | mutate individual messages, create search folders |
+| `folders` | `Mail.ReadWrite` + `MailboxSettings.Read` | the read verbs **plus** `searchfolder-create`, `searchfolder-remove` | author rules |
+| `messages` | `Mail.ReadWrite` + `MailboxSettings.Read` | the read verbs **plus** `message-move` (MOVE only, never delete) | author rules; **delete a message** (no verb does, no scope grants it) |
 
 A read-only token *structurally* carries no write grant, so even a bug cannot change the mailbox.
-Escalating to `--mode rules` is a separate browser consent — the OAuth grant is the audit record.
-Stay in `read` until you actually need to install or remove a rule.
+Each escalation (`--mode rules` / `folders` / `messages`) is a separate browser consent — the OAuth
+grant is the audit record. No mode ever grants a delete capability. Stay in `read` until you actually
+need to write.
 
 ## One-time prerequisite (free, human)
 

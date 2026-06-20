@@ -60,9 +60,11 @@ SCOPES = {
     "read": "Mail.Read MailboxSettings.Read offline_access",
     "rules": "Mail.Read MailboxSettings.ReadWrite offline_access",
     "folders": "Mail.ReadWrite MailboxSettings.Read offline_access",
+    "messages": "Mail.ReadWrite MailboxSettings.Read offline_access",
 }
 WRITE_SCOPE = "MailboxSettings.ReadWrite"  # rule authoring + master categories
-SEARCHFOLDER_SCOPE = "Mail.ReadWrite"  # the new tier: create/remove virtual search folders
+SEARCHFOLDER_SCOPE = "Mail.ReadWrite"  # the search-folder tier: create/remove virtual search folders
+MESSAGE_WRITE_SCOPE = "Mail.ReadWrite"  # the message-move tier: relocate messages between folders (MOVE only)
 
 # --- Secrets live OUTSIDE the repo. Never write tokens into the project tree. -------------------
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "msgraph-stdlib"
@@ -105,9 +107,11 @@ TOOLS = [
         "description": (
             "Sign in via OAuth device-code. Default mode requests Mail.Read MailboxSettings.Read "
             "(read-only: read mail and read existing rules, no write capability). Pass --mode rules "
-            "to consent to MailboxSettings.ReadWrite for rule authoring (incl. categories), or "
-            "--mode folders to consent to Mail.ReadWrite for creating search folders — each a "
-            "separate, deliberate escalation. Run this first; the operator authorises in a browser."
+            "to consent to MailboxSettings.ReadWrite for rule authoring (incl. categories), "
+            "--mode folders to consent to Mail.ReadWrite for creating search folders, or "
+            "--mode messages to consent to Mail.ReadWrite for moving messages between folders "
+            "(MOVE only — never delete) — each a separate, deliberate escalation. Run this first; "
+            "the operator authorises in a browser."
         ),
         "annotations": {
             "readOnlyHint": False,
@@ -120,11 +124,12 @@ TOOLS = [
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["read", "rules", "folders"],
+                    "enum": ["read", "rules", "folders", "messages"],
                     "default": "read",
                     "description": "read = Mail.Read + MailboxSettings.Read; "
                     "rules = + MailboxSettings.ReadWrite (rule authoring + categories); "
-                    "folders = Mail.ReadWrite + MailboxSettings.Read (create search folders).",
+                    "folders = Mail.ReadWrite + MailboxSettings.Read (create search folders); "
+                    "messages = Mail.ReadWrite + MailboxSettings.Read (move messages between folders).",
                 },
             },
             "required": [],
@@ -132,7 +137,8 @@ TOOLS = [
         "scope": (
             "Mail.Read MailboxSettings.Read (read) | "
             "Mail.Read MailboxSettings.ReadWrite (rules) | "
-            "Mail.ReadWrite MailboxSettings.Read (folders)"
+            "Mail.ReadWrite MailboxSettings.Read (folders) | "
+            "Mail.ReadWrite MailboxSettings.Read (messages)"
         ),
     },
     {
@@ -196,6 +202,54 @@ TOOLS = [
             "required": ["message_id"],
         },
         "scope": "Mail.Read",
+    },
+    {
+        "name": "message-move",
+        "description": (
+            "Move one or more messages to a destination mail folder (POST /me/messages/{id}/move). "
+            "MOVE only — never deletes; the operation is reversible (move the message back). Use to "
+            "re-file backlog mail that incoming-only rules cannot touch. ALWAYS preview first with "
+            "--dry_run true: it resolves the destination and lists the exact messages that would move "
+            "WITHOUT writing anything. Batch-safe: each message reports its own outcome, so one bad id "
+            "never aborts the rest. Requires the SEPARATE message-write sign-in "
+            "(auth-login --mode messages; Mail.ReadWrite) — a distinct write tier from read, rule "
+            "authoring, and search folders."
+        ),
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Graph message id(s) to move (from mail-list --format detailed).",
+                },
+                "destination_folder": {
+                    "type": "string",
+                    "description": "Target folder: a display name, a well-known name (inbox, archive, "
+                    "deleteditems, …), or a folder id. Messages are filed here; never deleted.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "true = preview only: resolve the destination and list what WOULD "
+                    "move, writing nothing. Run this first to gate the move on the shown set.",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = per-message summary; detailed = full JSON incl. new ids.",
+                },
+            },
+            "required": ["message_ids", "destination_folder"],
+        },
+        "scope": "Mail.ReadWrite",
     },
     {
         "name": "rule-list",
@@ -597,6 +651,12 @@ def _require_scopes(tok: dict, needed) -> None:
                 "This action needs rule-authoring permission, which the current read-only sign-in "
                 "does not hold. Escalate deliberately: run /msgraph-auth-login --mode rules."
             )
+        if MESSAGE_WRITE_SCOPE in missing:  # Mail.ReadWrite — message-move or search folders
+            raise SteerError(
+                "This action needs mail-write permission (Mail.ReadWrite), which the current sign-in "
+                "does not hold. Escalate deliberately: run /msgraph-auth-login --mode messages (to move "
+                "messages) or --mode folders (to create search folders)."
+            )
         raise SteerError(
             f"Current sign-in is missing scope(s): {' '.join(sorted(missing))}. Re-run /msgraph-auth-login."
         )
@@ -752,6 +812,45 @@ def _resolve_folder_id(token: str, name: str) -> str:
         f"No mail folder named '{name}' was found. Create it in Outlook first, or pass an "
         f"existing folder name (rule actions file mail to a folder; they never delete)."
     )
+
+
+# Well-known folder names Graph accepts verbatim as a destinationId (no lookup needed).
+_WELL_KNOWN_FOLDERS = {
+    "inbox",
+    "archive",
+    "drafts",
+    "sentitems",
+    "deleteditems",
+    "junkemail",
+    "msgfolderroot",
+    "clutter",
+    "conflicts",
+    "conversationhistory",
+    "localfailures",
+    "outbox",
+    "recoverableitemsdeletions",
+    "scheduled",
+    "searchfolders",
+    "serverfailures",
+    "syncissues",
+}
+
+
+def _resolve_destination_folder(token: str, dest: str) -> tuple[str, str]:
+    """Resolve a move destination to (folder_id, label) — never a delete target (MOVE only).
+
+    Accepts a well-known folder name (used verbatim), a display name (resolved to its id, at any
+    nesting depth, via the folder name map), or an opaque folder id (used verbatim when no name
+    matches). Read-only resolution; the caller performs the actual move.
+    """
+    if dest.casefold() in _WELL_KNOWN_FOLDERS:
+        return dest.casefold(), dest.casefold()
+    # Invert id→name to resolve a display name to its id at any depth (covers nested folders).
+    for fid, fname in _folder_name_map(token).items():
+        if fname.casefold() == dest.casefold():
+            return fid, fname
+    # No name match — treat the value as an opaque id and let Graph validate it per message.
+    return dest, dest
 
 
 def _master_categories(token: str) -> list:
@@ -956,6 +1055,65 @@ def cmd_mail_get(args) -> int:
         for h in headers:
             print(f"  {h.get('name')}: {h.get('value')}")
     return 0
+
+
+def _message_summary(token: str, mid: str) -> dict:
+    """Fetch one message's subject/sender for preview/audit (read-only). {} if it cannot be read."""
+    try:
+        q = urllib.parse.quote(mid, safe="")
+        return _graph_get(token, f"/me/messages/{q}", params={"$select": "id,subject,from"})
+    except SteerError:
+        return {}
+
+
+def cmd_message_move(args) -> int:
+    """Move message(s) to a destination folder (POST /me/messages/{id}/move). MOVE only; reversible.
+
+    --dry_run resolves the destination and lists what WOULD move, writing nothing (the gate). The real
+    move is batch-safe: each id is moved independently and reports its own outcome, so one failure
+    (e.g. a stale id) never aborts the batch. Returns enough per-message detail (old id → new id) to
+    log and reverse. Requires the message-write tier (Mail.ReadWrite, auth-login --mode messages).
+    """
+    tok = _authed_token(MESSAGE_WRITE_SCOPE)
+    token = tok["access_token"]
+    ids = list(dict.fromkeys(args.message_ids))  # de-dupe, preserve order
+    dest_id, dest_label = _resolve_destination_folder(token, args.destination_folder)
+
+    if args.dry_run:
+        previews = [{"id": mid, **_message_summary(token, mid)} for mid in ids]
+        if args.format == "detailed":
+            print(json.dumps({"dry_run": True, "destination": dest_label, "would_move": previews}, indent=2))
+            return 0
+        print(f'DRY RUN — would move {len(ids)} message(s) to "{dest_label}". Nothing was written.')
+        for p in previews:
+            subj = p.get("subject", "(unreadable — id may be stale)")
+            print(f'  - "{subj}" from {_sender_of(p)}  [{p["id"]}]')
+        print("\nRe-run without --dry_run to perform the move (reversible: move back to the source folder).")
+        return 0
+
+    results = []
+    for mid in ids:
+        q = urllib.parse.quote(mid, safe="")
+        try:
+            url = f"{GRAPH}/me/messages/{q}/move"
+            moved = _http("POST", url, token=token, body={"destinationId": dest_id})
+            results.append({"source_id": mid, "new_id": moved.get("id", "?"), "ok": True})
+        except SteerError as e:
+            results.append({"source_id": mid, "ok": False, "error": str(e)})
+
+    if args.format == "detailed":
+        print(json.dumps({"destination": dest_label, "results": results}, indent=2))
+        return 0
+    ok = [r for r in results if r["ok"]]
+    failed = [r for r in results if not r["ok"]]
+    print(f'Moved {len(ok)}/{len(results)} message(s) to "{dest_label}". MOVE only — nothing deleted.')
+    for r in ok:
+        print(f"  ✓ {r['source_id']} → new id {r['new_id']}")
+    for r in failed:
+        print(f"  ✗ {r['source_id']}: {r['error']}")
+    if ok:
+        print("\nReversible: move these back with message-move --destination_folder <source folder>.")
+    return 1 if failed and not ok else 0
 
 
 def _fetch_messages_with_headers(token: str, limit: int = 100) -> list:
@@ -1253,6 +1411,7 @@ _HANDLERS = {
     "auth-login": cmd_auth_login,
     "mail-list": cmd_mail_list,
     "mail-get": cmd_mail_get,
+    "message-move": cmd_message_move,
     "rule-list": cmd_rule_list,
     "rule-verify": cmd_rule_verify,
     "rule-create": cmd_rule_create,
@@ -1276,15 +1435,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.choices["describe"].add_argument("--name", help="describe a single verb instead of the catalog")
     sub.choices["auth-login"].add_argument(
         "--mode",
-        choices=["read", "rules", "folders"],
+        choices=["read", "rules", "folders", "messages"],
         default="read",
-        help="read (default), rules (rule-authoring escalation), or folders (search-folder escalation)",
+        help="read (default), rules (rule-authoring), folders (search-folder), or messages (message-move)",
     )
     for verb in ("mail-list",):
         sub.choices[verb].add_argument("--limit", type=int, default=25, help="max items (pagination)")
     for verb in (
         "mail-list",
         "mail-get",
+        "message-move",
         "rule-list",
         "rule-verify",
         "category-list",
@@ -1299,6 +1459,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="also list hidden folders (default false)",
     )
     sub.choices["mail-get"].add_argument("--message_id", required=True, help="Graph message id")
+
+    mvm = sub.choices["message-move"]
+    mvm.add_argument("--message_ids", nargs="+", required=True, metavar="ID", help="message id(s) to move")
+    mvm.add_argument("--destination_folder", required=True, help="target folder name, well-known name, or id")
+    mvm.add_argument(
+        "--dry_run",
+        type=lambda v: str(v).lower() not in ("false", "0", "no"),
+        default=False,
+        help="preview what would move without writing (default false)",
+    )
     sub.choices["rule-verify"].add_argument(
         "--header_contains", nargs="+", required=True, metavar="SUBSTR", help="header substrings to match"
     )
