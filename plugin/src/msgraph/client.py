@@ -377,6 +377,42 @@ TOOLS = [
         "scope": "MailboxSettings.ReadWrite",
     },
     {
+        "name": "folder-list",
+        "description": (
+            "List the mailbox's real mail folders as a nested tree (each folder's name, message "
+            "totals, unread count, and child count), read-only, via GET /me/mailFolders recursed "
+            "through childFolders. Use to audit/understand the folder layout before proposing "
+            "move-to-folder rules that target it. These are real mail folders, not virtual search "
+            "folders (use searchfolder-list for those). concise (default) prints an indented tree "
+            "with total/unread counts; detailed returns full JSON with ids + parentFolderId. "
+            "Requires read sign-in (Mail.Read)."
+        ),
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = indented tree + counts; detailed = full JSON with ids.",
+                },
+                "include_hidden": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "true = also list hidden folders (includeHiddenFolders=true).",
+                },
+            },
+            "required": [],
+        },
+        "scope": "Mail.Read",
+    },
+    {
         "name": "searchfolder-list",
         "description": (
             "List virtual search folders (name, filter, source-folder scope, id), read-only. Search "
@@ -784,6 +820,51 @@ def _folder_name_map(token: str) -> dict:
     return names
 
 
+# Fields fetched per mail folder for the folder tree (folder-list, feature: folder audit).
+_FOLDER_TREE_SELECT = "id,displayName,parentFolderId,totalItemCount,unreadItemCount,childFolderCount"
+# Well-known name of the virtual search-folder parent — excluded from the real-folder tree so
+# folder-list never double-reports what searchfolder-list owns.
+_SEARCHFOLDERS_NAME = "search folders"
+
+
+def _folder_tree(token: str, include_hidden: bool = False) -> list:
+    """Return the real mail-folder tree as nested nodes (data: folder audit).
+
+    Each node carries displayName, id, parentFolderId, totalItemCount, unreadItemCount,
+    childFolderCount and a ``children`` list. Recurses only into folders that report children, so the
+    number of GETs is proportional to folders-with-children rather than the whole tree. Read-only —
+    GET /me/mailFolders covers this with Mail.Read alone. Excludes the virtual ``Search Folders`` node
+    (owned by searchfolder-list) so the two verbs never overlap.
+    """
+    params = {"$top": 200, "$select": _FOLDER_TREE_SELECT}
+    if include_hidden:
+        params["includeHiddenFolders"] = "true"
+
+    def fetch(path: str) -> list:
+        nodes = []
+        for f in _graph_get(token, path, params=params).get("value", []):
+            fid = f.get("id")
+            if not fid:
+                continue
+            node = {
+                "id": fid,
+                "displayName": f.get("displayName", ""),
+                "parentFolderId": f.get("parentFolderId", ""),
+                "totalItemCount": f.get("totalItemCount", 0),
+                "unreadItemCount": f.get("unreadItemCount", 0),
+                "childFolderCount": f.get("childFolderCount", 0),
+                "children": [],
+            }
+            if node["childFolderCount"]:
+                child_path = f"/me/mailFolders/{urllib.parse.quote(fid, safe='')}/childFolders"
+                node["children"] = fetch(child_path)
+            nodes.append(node)
+        return nodes
+
+    tree = fetch("/me/mailFolders")
+    return [n for n in tree if n["displayName"].casefold() != _SEARCHFOLDERS_NAME]
+
+
 # ================================================================================================
 # Verb implementations
 # ================================================================================================
@@ -1068,6 +1149,35 @@ def cmd_category_ensure(args) -> int:
     return 0
 
 
+def cmd_folder_list(args) -> int:
+    """List real mail folders as a nested tree (name + counts). Read-only; needs Mail.Read."""
+    tok = _authed_token("Mail.Read")
+    tree = _folder_tree(tok["access_token"], include_hidden=bool(getattr(args, "include_hidden", False)))
+    if args.format == "detailed":
+        print(json.dumps(tree, indent=2))
+        return 0
+    if not tree:
+        print("No mail folders found.")
+        return 0
+
+    count = 0
+
+    def render(nodes, depth=0):
+        nonlocal count
+        for n in nodes:
+            count += 1
+            indent = "  " * depth
+            print(
+                f'{indent}- "{n["displayName"] or "(unnamed)"}"  '
+                f"({n['totalItemCount']} total, {n['unreadItemCount']} unread)"
+            )
+            render(n["children"], depth + 1)
+
+    render(tree)
+    print(f"{count} mail folder(s). Pass --format detailed for ids + parentFolderId.")
+    return 0
+
+
 def cmd_searchfolder_list(args) -> int:
     """List virtual search folders (name, filter, source scope, id). Read-only (FR-007/FR-009)."""
     tok = _authed_token("Mail.Read")
@@ -1149,6 +1259,7 @@ _HANDLERS = {
     "rule-remove": cmd_rule_remove,
     "category-list": cmd_category_list,
     "category-ensure": cmd_category_ensure,
+    "folder-list": cmd_folder_list,
     "searchfolder-list": cmd_searchfolder_list,
     "searchfolder-create": cmd_searchfolder_create,
     "searchfolder-remove": cmd_searchfolder_remove,
@@ -1171,8 +1282,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     for verb in ("mail-list",):
         sub.choices[verb].add_argument("--limit", type=int, default=25, help="max items (pagination)")
-    for verb in ("mail-list", "mail-get", "rule-list", "rule-verify", "category-list", "searchfolder-list"):
+    for verb in (
+        "mail-list",
+        "mail-get",
+        "rule-list",
+        "rule-verify",
+        "category-list",
+        "folder-list",
+        "searchfolder-list",
+    ):
         sub.choices[verb].add_argument("--format", choices=["concise", "detailed"], default="concise")
+    sub.choices["folder-list"].add_argument(
+        "--include_hidden",
+        type=lambda v: str(v).lower() not in ("false", "0", "no"),
+        default=False,
+        help="also list hidden folders (default false)",
+    )
     sub.choices["mail-get"].add_argument("--message_id", required=True, help="Graph message id")
     sub.choices["rule-verify"].add_argument(
         "--header_contains", nargs="+", required=True, metavar="SUBSTR", help="header substrings to match"

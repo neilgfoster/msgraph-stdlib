@@ -155,6 +155,18 @@ class VerbUrlConstructionTest(unittest.TestCase):
         for url in self.urls:
             _assert_valid_url(self, url)
 
+    def test_folder_list_url_is_valid(self):
+        self._run(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
+        self.assertTrue(any("/me/mailFolders?" in u or u.endswith("/me/mailFolders") for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_folder_list_include_hidden_url_is_valid(self):
+        self._run(client.cmd_folder_list, _Args(format="concise", include_hidden=True))
+        self.assertTrue(any("includeHiddenFolders=true" in u for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
     def test_searchfolder_list_url_is_valid(self):
         self._run(client.cmd_searchfolder_list, _Args(format="concise"))
         self.assertTrue(any("searchfolders/childFolders" in u for u in self.urls))
