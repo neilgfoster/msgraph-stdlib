@@ -265,6 +265,37 @@ class RuleListTest(StatePathMixin):
         empty = self._render({"value": []})
         self.assertIn("No inbox message rules", empty)
 
+    def test_renders_non_header_predicates_and_actions(self):
+        # Most real rules use predicates other than headerContains; they must be legible, not hidden.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rules = {
+            "value": [
+                {
+                    "id": "r2",
+                    "displayName": "From boss",
+                    "isEnabled": False,
+                    "conditions": {
+                        "senderContains": ["boss@example.com"],
+                        "fromAddresses": [{"emailAddress": {"name": "Boss", "address": "boss@example.com"}}],
+                        "sentToMe": True,
+                        "importance": "high",
+                    },
+                    "actions": {"markAsRead": True, "assignCategories": ["Work"]},
+                }
+            ]
+        }
+        out = self._render(rules)
+        self.assertIn("From boss", out)
+        self.assertIn("disabled", out)
+        self.assertIn("sender contains: boss@example.com", out)
+        self.assertIn("from addresses: boss@example.com", out)
+        self.assertIn("sent to me: yes", out)
+        self.assertIn("importance: high", out)
+        self.assertIn("mark as read: yes", out)
+        self.assertIn("assign categories: Work", out)
+        # No false "(other criteria)" / "(other action)" placeholder leaks through.
+        self.assertNotIn("other criteria", out)
+
     def _render(self, payload):
         import contextlib
         import io

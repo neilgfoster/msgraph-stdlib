@@ -665,6 +665,39 @@ def cmd_rule_verify(args) -> int:
     return 0
 
 
+def _humanize_key(key: str) -> str:
+    """Turn a camelCase predicate/action name into spaced lower-case words (agent-legible)."""
+    return "".join(f" {c.lower()}" if c.isupper() else c for c in key).strip()
+
+
+def _humanize_value(value) -> str:
+    """Render a Graph predicate/action value (list, recipient list, bool, enum, range) legibly."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):  # recipient: {"emailAddress": {"name", "address"}}
+                addr = (item.get("emailAddress") or {})
+                parts.append(addr.get("address") or addr.get("name") or json.dumps(item))
+            else:
+                parts.append(str(item))
+        return ", ".join(parts)
+    if isinstance(value, dict):  # e.g. withinSizeRange {minimumSize, maximumSize}
+        return ", ".join(f"{_humanize_key(k)} {v}" for k, v in value.items())
+    return str(value)
+
+
+def _summarize_clauses(clauses: dict) -> list:
+    """Summarize whichever conditions/actions are present, skipping empty/false ones."""
+    lines = []
+    for key, value in (clauses or {}).items():
+        if value in (None, [], {}, "", False):
+            continue  # absent predicate/action — don't pretend it's set
+        lines.append(f"{_humanize_key(key)}: {_humanize_value(value)}")
+    return lines
+
+
 def _render_rules(rules: list, fmt: str) -> str:
     if fmt == "detailed":
         return json.dumps(rules, indent=2)
@@ -672,16 +705,15 @@ def _render_rules(rules: list, fmt: str) -> str:
         return "No inbox message rules."
     out = []
     for r in rules:
-        conds = r.get("conditions") or {}
-        hc = conds.get("headerContains") or []
-        action = r.get("actions") or {}
-        folder = action.get("moveToFolder") or ""
-        out.append(
+        conds = _summarize_clauses(r.get("conditions") or {})
+        actions = _summarize_clauses(r.get("actions") or {})
+        line = (
             f'- "{r.get("displayName", "(unnamed)")}"'
             f"{'  enabled' if r.get('isEnabled', True) else '  disabled'}"
-            f"\n    if header contains: {hc or '(other criteria)'}"
-            f"\n    → move to folder id: {folder or '(other action)'}"
+            f"\n    if   {'; '.join(conds) or '(no conditions)'}"
+            f"\n    then {'; '.join(actions) or '(no actions)'}"
         )
+        out.append(line)
     out.append(f"{len(rules)} rule(s). Pass --format detailed for ids needed by rule-remove.")
     return "\n".join(out)
 
