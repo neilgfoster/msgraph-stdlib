@@ -919,7 +919,7 @@ def _humanize_value(value) -> str:
         parts = []
         for item in value:
             if isinstance(item, dict):  # recipient: {"emailAddress": {"name", "address"}}
-                addr = (item.get("emailAddress") or {})
+                addr = item.get("emailAddress") or {}
                 parts.append(addr.get("address") or addr.get("name") or json.dumps(item))
             else:
                 parts.append(str(item))
@@ -1023,7 +1023,7 @@ def cmd_rule_create(args) -> int:
     )
     print(
         f'Created rule "{args.name}" (id: {created.get("id", "?")}). For mail whose headers '
-        f'contain {args.header_contains}, it {" and ".join(summary)}. '
+        f"contain {args.header_contains}, it {' and '.join(summary)}. "
         f"Verified catch-set was {marker.get('count', '?')} message(s). "
         f"Reverse anytime with rule-remove."
     )
@@ -1084,7 +1084,7 @@ def cmd_searchfolder_list(args) -> int:
         n_src = len(f.get("sourceFolderIds") or [])
         print(
             f'- "{f.get("displayName", "(unnamed)")}"  (id: {f.get("id", "?")})'
-            f'\n    filter: {f.get("filterQuery", "(none)")}  [{scope} over {n_src} source folder(s)]'
+            f"\n    filter: {f.get('filterQuery', '(none)')}  [{scope} over {n_src} source folder(s)]"
         )
     print(f"{len(folders)} search folder(s). Pass --format detailed for full ids.")
     return 0
@@ -1107,8 +1107,7 @@ def cmd_searchfolder_create(args) -> int:
     # Well-known names (inbox, archive, …) are accepted verbatim by Graph; resolve any others to ids.
     _WELL_KNOWN = {"inbox", "archive", "drafts", "sentitems", "deleteditems", "junkemail", "msgfolderroot"}
     source_ids = [
-        n if n.casefold() in _WELL_KNOWN else _resolve_folder_id(tok["access_token"], n)
-        for n in source_names
+        n if n.casefold() in _WELL_KNOWN else _resolve_folder_id(tok["access_token"], n) for n in source_names
     ]
     body = {
         "@odata.type": "microsoft.graph.mailSearchFolder",
@@ -1201,9 +1200,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sfc.add_argument("--name", required=True, help="search folder display name")
     sfc.add_argument("--category", help="build a category filter for this name")
     sfc.add_argument("--filter_query", help="explicit OData filter (overrides --category)")
-    sfc.add_argument(
-        "--source_folders", nargs="+", metavar="FOLDER", help="folders to mine (default: inbox)"
-    )
+    sfc.add_argument("--source_folders", nargs="+", metavar="FOLDER", help="folders to mine (default: inbox)")
     sfc.add_argument(
         "--include_nested",
         type=lambda v: str(v).lower() not in ("false", "0", "no"),

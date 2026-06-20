@@ -88,8 +88,7 @@ class VerbUrlConstructionTest(unittest.TestCase):
                 "access_token": "fake-access",
                 "refresh_token": "fake-refresh",
                 "scope": (
-                    "Mail.Read Mail.ReadWrite MailboxSettings.Read "
-                    "MailboxSettings.ReadWrite offline_access"
+                    "Mail.Read Mail.ReadWrite MailboxSettings.Read MailboxSettings.ReadWrite offline_access"
                 ),
                 "expires_at": time.time() + 3600,
             }
@@ -167,8 +166,13 @@ class VerbUrlConstructionTest(unittest.TestCase):
         # POST path itself must be valid; assert no query/path corruption regardless.
         self._run(
             client.cmd_searchfolder_create,
-            _Args(name="Needs attention", category="Needs attention", filter_query=None,
-                  source_folders=["inbox"], include_nested=True),
+            _Args(
+                name="Needs attention",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox"],
+                include_nested=True,
+            ),
         )
         self.assertTrue(any(u.endswith("/me/mailFolders/searchfolders/childFolders") for u in self.urls))
         for url in self.urls:

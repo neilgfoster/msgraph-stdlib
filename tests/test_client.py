@@ -121,7 +121,12 @@ class DescribeTest(unittest.TestCase):
 
     def test_read_only_verbs_advertise_read_only(self):
         read_only = (
-            "mail-list", "mail-get", "rule-list", "rule-verify", "category-list", "searchfolder-list",
+            "mail-list",
+            "mail-get",
+            "rule-list",
+            "rule-verify",
+            "category-list",
+            "searchfolder-list",
         )
         for name in read_only:
             tool = next(t for t in client.TOOLS if t["name"] == name)
@@ -512,8 +517,12 @@ class CategoryTest(StatePathMixin):
         client._http = rec
         self._capture(
             client.cmd_rule_create,
-            _Args(name="Flag", header_contains=["List-Unsubscribe"], move_to_folder=None,
-                  assign_category=["Needs attention"]),
+            _Args(
+                name="Flag",
+                header_contains=["List-Unsubscribe"],
+                move_to_folder=None,
+                assign_category=["Needs attention"],
+            ),
         )
         rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
         actions = rule_post[3]["actions"]
@@ -540,8 +549,12 @@ class CategoryTest(StatePathMixin):
         client._http = rec
         self._capture(
             client.cmd_rule_create,
-            _Args(name="Both", header_contains=["List-Unsubscribe"], move_to_folder="News",
-                  assign_category=["Needs attention"]),
+            _Args(
+                name="Both",
+                header_contains=["List-Unsubscribe"],
+                move_to_folder="News",
+                assign_category=["Needs attention"],
+            ),
         )
         rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
         actions = rule_post[3]["actions"]
@@ -598,8 +611,13 @@ class SearchFolderTest(StatePathMixin):
             self._sign_in(scope)
             with self.assertRaises(client.SteerError):
                 client.cmd_searchfolder_create(
-                    _Args(name="N", category="Needs attention", filter_query=None,
-                          source_folders=None, include_nested=True)
+                    _Args(
+                        name="N",
+                        category="Needs attention",
+                        filter_query=None,
+                        source_folders=None,
+                        include_nested=True,
+                    )
                 )
 
     def test_create_refuses_without_filter(self):
@@ -616,8 +634,13 @@ class SearchFolderTest(StatePathMixin):
         client._http = rec
         self._capture(
             client.cmd_searchfolder_create,
-            _Args(name="Needs attention", category="Needs attention", filter_query=None,
-                  source_folders=["inbox"], include_nested=True),
+            _Args(
+                name="Needs attention",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox"],
+                include_nested=True,
+            ),
         )
         post = next(c for c in rec.calls if c[0] == "POST")
         self.assertTrue(post[1].endswith("/me/mailFolders/searchfolders/childFolders"))
@@ -633,8 +656,13 @@ class SearchFolderTest(StatePathMixin):
         client._http = rec
         self._capture(
             client.cmd_searchfolder_create,
-            _Args(name="Big", category="Ignored", filter_query="hasAttachments eq true",
-                  source_folders=None, include_nested=False),
+            _Args(
+                name="Big",
+                category="Ignored",
+                filter_query="hasAttachments eq true",
+                source_folders=None,
+                include_nested=False,
+            ),
         )
         body = next(c for c in rec.calls if c[0] == "POST")[3]
         self.assertEqual(body["filterQuery"], "hasAttachments eq true")
@@ -643,9 +671,17 @@ class SearchFolderTest(StatePathMixin):
 
     def test_list_read_scope_only(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
-        payload = {"value": [{"id": "sf1", "displayName": "Needs attention",
-                              "filterQuery": "categories/any(c:c eq 'Needs attention')",
-                              "includeNestedFolders": True, "sourceFolderIds": ["inbox"]}]}
+        payload = {
+            "value": [
+                {
+                    "id": "sf1",
+                    "displayName": "Needs attention",
+                    "filterQuery": "categories/any(c:c eq 'Needs attention')",
+                    "includeNestedFolders": True,
+                    "sourceFolderIds": ["inbox"],
+                }
+            ]
+        }
         rec = _HttpRecorder(lambda method, url, **kw: payload)
         client._http = rec
         out = self._capture(client.cmd_searchfolder_list, _Args(format="concise"))
