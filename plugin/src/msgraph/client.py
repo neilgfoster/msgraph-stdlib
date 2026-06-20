@@ -516,13 +516,27 @@ def _render_messages(items: list, fmt: str) -> str:
 # ================================================================================================
 # Graph helpers
 # ================================================================================================
-def _graph_get(token: str, path: str) -> dict:
-    return _http("GET", f"{GRAPH}{path}", token=token)
+def _graph_url(path: str, params: dict | None = None) -> str:
+    """Build a Graph URL, percent-encoding query values so the URL is valid for urllib/http.client.
+
+    OData values routinely contain spaces (``$orderby=receivedDateTime desc``) and other reserved
+    characters; an unencoded space raises ``http.client.InvalidURL`` on first live use. ``$`` and
+    ``,`` are kept literal because Graph expects them verbatim in option names (``$top``, ``$orderby``)
+    and ``$select`` lists; everything else (notably spaces → ``%20``) is percent-encoded.
+    """
+    url = f"{GRAPH}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote, safe="$,")
+    return url
+
+
+def _graph_get(token: str, path: str, params: dict | None = None) -> dict:
+    return _http("GET", _graph_url(path, params), token=token)
 
 
 def _resolve_folder_id(token: str, name: str) -> str:
     """Look up a mail folder id by display name for the move-to-folder action (data-model)."""
-    data = _graph_get(token, "/me/mailFolders?$top=100&$select=id,displayName")
+    data = _graph_get(token, "/me/mailFolders", params={"$top": 100, "$select": "id,displayName"})
     for f in data.get("value", []):
         if f.get("displayName", "").casefold() == name.casefold():
             return f["id"]
@@ -595,7 +609,9 @@ def cmd_mail_list(args) -> int:
     tok = _authed_token("Mail.Read")
     sel = "id,subject,from,receivedDateTime"
     data = _graph_get(
-        tok["access_token"], f"/me/messages?$top={args.limit}&$select={sel}&$orderby=receivedDateTime desc"
+        tok["access_token"],
+        "/me/messages",
+        params={"$top": args.limit, "$select": sel, "$orderby": "receivedDateTime desc"},
     )
     print(_render_messages(data.get("value", []), args.format))
     return 0
@@ -605,7 +621,8 @@ def cmd_mail_get(args) -> int:
     """Fetch one message including internet headers (FR-006)."""
     tok = _authed_token("Mail.Read")
     sel = "id,subject,from,receivedDateTime,body,internetMessageHeaders"
-    msg = _graph_get(tok["access_token"], f"/me/messages/{args.message_id}?$select={sel}")
+    mid = urllib.parse.quote(args.message_id, safe="")
+    msg = _graph_get(tok["access_token"], f"/me/messages/{mid}", params={"$select": sel})
     if args.format == "detailed":
         print(json.dumps(msg, indent=2))
     else:
@@ -622,7 +639,11 @@ def cmd_mail_get(args) -> int:
 def _fetch_messages_with_headers(token: str, limit: int = 100) -> list:
     """Read messages + their internet headers for catch-set evaluation (read-only, GETs only)."""
     sel = "id,subject,from,receivedDateTime,internetMessageHeaders"
-    data = _graph_get(token, f"/me/messages?$top={limit}&$select={sel}&$orderby=receivedDateTime desc")
+    data = _graph_get(
+        token,
+        "/me/messages",
+        params={"$top": limit, "$select": sel, "$orderby": "receivedDateTime desc"},
+    )
     return data.get("value", [])
 
 

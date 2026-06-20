@@ -32,13 +32,36 @@ Stay in `read` until you actually need to install or remove a rule.
 
 ## One-time prerequisite (free, human)
 
-Register a free **Azure AD app** (public client, device-code/public-client flow **enabled**) with
-delegated permissions `Mail.Read` + `MailboxSettings.Read` (+ `MailboxSettings.ReadWrite` for rule
-authoring). Personal Microsoft accounts need no admin consent. Then export, before first sign-in:
+You register a free **Azure AD (Entra) app** once. The app registration and tenant are Entra-level
+and **free forever** — only the steps to *get* a tenant trip people up, so follow these exactly. (All
+verified during the first live run.)
+
+**0. A personal Microsoft account has NO tenant by default.** It sits in the shared "Microsoft
+Services" directory, where app registration is impossible. You must create your own tenant first.
+
+**1. Create a tenant.** Per Microsoft docs the prerequisite is an Azure subscription — start the free
+trial at <https://azure.microsoft.com/free>. It requires **card verification** (~£1 reversible hold,
+no auto-charge; the trial subscription is *disabled* at 30 days, not upgraded). Durability: once the
+tenant exists, the app registration and token issuance keep working at **zero cost** after the trial
+subscription is disabled — the subscription is only needed to create the tenant, not to run the app.
+
+**2. Use the Entra admin center — <https://entra.microsoft.com>, NOT portal.azure.com.** A tenant with
+no active subscription makes the Azure portal default to the wrong directory (error `AADSTS160021`).
+
+**3. Register the app** (Entra → App registrations → New registration):
+
+| Setting | Value |
+|---|---|
+| Supported account types | **Personal Microsoft accounts only** (this makes `MSGRAPH_TENANT_ID="consumers"` correct) |
+| Redirect URI | **leave blank** (device-code flow needs none) |
+| Authentication → **Allow public client flows** | **Yes** — REQUIRED, or device-code fails. In the new "Authentication (Preview)" tab this toggle lives under the **Settings** sub-tab (no longer under "Advanced settings" — docs that say otherwise are outdated). |
+| API permissions (delegated) | `Mail.Read`, `MailboxSettings.Read` (+ `MailboxSettings.ReadWrite` for rule authoring). Personal accounts need **no admin consent** — consent happens in-browser at sign-in. The default `User.Read` can stay; the kernel never requests it. |
+
+**4. Export the values** before first sign-in:
 
 ```bash
-export MSGRAPH_CLIENT_ID="<application (client) id>"
-export MSGRAPH_TENANT_ID="consumers"   # or "common" for work/school + personal
+export MSGRAPH_CLIENT_ID="<application (client) id>"   # a public client's id is NOT a secret — plaintext is fine
+export MSGRAPH_TENANT_ID="consumers"                   # "Personal Microsoft accounts only" ⇒ consumers
 ```
 
 These are read from the environment and never hardcoded. If `MSGRAPH_CLIENT_ID` is unset, the verb
