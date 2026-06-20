@@ -50,14 +50,19 @@ def _authority() -> str:
     return f"https://login.microsoftonline.com/{_tenant()}/oauth2/v2.0"
 
 
-# The two auth modes are the scope ratchet (research D2). offline_access yields a refresh
-# token for silent renewal. read mode includes MailboxSettings.Read so rule-list works
-# while holding NO write capability (MailboxSettings.Read != MailboxSettings.ReadWrite).
+# The auth modes are the scope ratchet (research D2 / feature 003 R4). offline_access yields a refresh
+# token for silent renewal. read mode includes MailboxSettings.Read so rule-list works while holding
+# NO write capability (MailboxSettings.Read != MailboxSettings.ReadWrite). rules mode adds the rule-
+# authoring write scope (also covers master-category create). folders mode is a SEPARATE, deliberate
+# tier: Mail.ReadWrite is the least-privileged grant for creating a mailSearchFolder (no lower option
+# exists) — kept distinct so a read/rules token can never create a search folder (FR-008/FR-012).
 SCOPES = {
     "read": "Mail.Read MailboxSettings.Read offline_access",
     "rules": "Mail.Read MailboxSettings.ReadWrite offline_access",
+    "folders": "Mail.ReadWrite MailboxSettings.Read offline_access",
 }
-WRITE_SCOPE = "MailboxSettings.ReadWrite"
+WRITE_SCOPE = "MailboxSettings.ReadWrite"  # rule authoring + master categories
+SEARCHFOLDER_SCOPE = "Mail.ReadWrite"  # the new tier: create/remove virtual search folders
 
 # --- Secrets live OUTSIDE the repo. Never write tokens into the project tree. -------------------
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "msgraph-stdlib"
@@ -100,8 +105,9 @@ TOOLS = [
         "description": (
             "Sign in via OAuth device-code. Default mode requests Mail.Read MailboxSettings.Read "
             "(read-only: read mail and read existing rules, no write capability). Pass --mode rules "
-            "to consent to MailboxSettings.ReadWrite for rule authoring — a separate, deliberate "
-            "escalation. Run this first; the operator authorises in a browser."
+            "to consent to MailboxSettings.ReadWrite for rule authoring (incl. categories), or "
+            "--mode folders to consent to Mail.ReadWrite for creating search folders — each a "
+            "separate, deliberate escalation. Run this first; the operator authorises in a browser."
         ),
         "annotations": {
             "readOnlyHint": False,
@@ -114,15 +120,20 @@ TOOLS = [
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["read", "rules"],
+                    "enum": ["read", "rules", "folders"],
                     "default": "read",
                     "description": "read = Mail.Read + MailboxSettings.Read; "
-                    "rules = + MailboxSettings.ReadWrite.",
+                    "rules = + MailboxSettings.ReadWrite (rule authoring + categories); "
+                    "folders = Mail.ReadWrite + MailboxSettings.Read (create search folders).",
                 },
             },
             "required": [],
         },
-        "scope": "Mail.Read MailboxSettings.Read (read) | Mail.Read MailboxSettings.ReadWrite (rules)",
+        "scope": (
+            "Mail.Read MailboxSettings.Read (read) | "
+            "Mail.Read MailboxSettings.ReadWrite (rules) | "
+            "Mail.ReadWrite MailboxSettings.Read (folders)"
+        ),
     },
     {
         "name": "mail-list",
@@ -248,9 +259,10 @@ TOOLS = [
     {
         "name": "rule-create",
         "description": (
-            "Install a rule that files matching mail to a folder. REFUSES unless the same criteria "
-            "were verified first (run rule-verify). Action is move-to-folder only — never delete. "
-            "Requires rule-authoring sign-in (auth-login --mode rules)."
+            "Install a rule that files matching mail to a folder and/or assigns a category. REFUSES "
+            "unless the same predicate was verified first (run rule-verify). Actions are "
+            "move-to-folder and/or assign-category only — never delete. Any assigned category is "
+            "ensured to exist (coloured) first. Requires rule-authoring sign-in (auth-login --mode rules)."
         ),
         "annotations": {
             "readOnlyHint": False,
@@ -267,9 +279,19 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Predicate substrings — MUST match a prior rule-verify.",
                 },
-                "move_to_folder": {"type": "string", "description": "Target folder name for matching mail."},
+                "move_to_folder": {
+                    "type": "string",
+                    "description": "Optional target folder name for matching mail (filed, never deleted).",
+                },
+                "assign_category": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional category name(s) to assign to matching mail. Ensured to "
+                    "exist (coloured) before install. At least one of move_to_folder/assign_category "
+                    "required.",
+                },
             },
-            "required": ["name", "header_contains", "move_to_folder"],
+            "required": ["name", "header_contains"],
         },
         "scope": "MailboxSettings.ReadWrite",
     },
@@ -296,6 +318,156 @@ TOOLS = [
             "required": ["rule_id"],
         },
         "scope": "MailboxSettings.ReadWrite",
+    },
+    {
+        "name": "category-list",
+        "description": (
+            "List the mailbox's master categories (name + colour), read-only. Use to see which "
+            "labels exist before authoring an assign-category rule or a category search folder. "
+            "Requires read sign-in."
+        ),
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = name + colour; detailed = full JSON.",
+                },
+            },
+            "required": [],
+        },
+        "scope": "MailboxSettings.Read",
+    },
+    {
+        "name": "category-ensure",
+        "description": (
+            "Ensure a named master category exists: create it with a colour if absent, no-op if "
+            "present. Use before assigning a category so the label renders with a colour. "
+            "Requires rule-authoring sign-in (auth-login --mode rules)."
+        ),
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Category display name (unique, immutable once created).",
+                },
+                "color": {
+                    "type": "string",
+                    "default": "preset9",
+                    "description": "categoryColor preset, e.g. preset0..preset24 or none.",
+                },
+            },
+            "required": ["name"],
+        },
+        "scope": "MailboxSettings.ReadWrite",
+    },
+    {
+        "name": "searchfolder-list",
+        "description": (
+            "List virtual search folders (name, filter, source-folder scope, id), read-only. Search "
+            "folders never move or delete mail. Use to find a folder's id before removing it. "
+            "Requires read sign-in."
+        ),
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["concise", "detailed"],
+                    "default": "concise",
+                    "description": "concise = name + filter + scope; detailed = full JSON.",
+                },
+            },
+            "required": [],
+        },
+        "scope": "Mail.Read",
+    },
+    {
+        "name": "searchfolder-create",
+        "description": (
+            "Create a virtual search folder: a saved filtered view (e.g. all mail tagged a category) "
+            "over chosen source folders. Non-destructive — it never moves or deletes mail. Requires "
+            "the SEPARATE search-folder sign-in (auth-login --mode folders), a distinct write tier "
+            "from rule authoring."
+        ),
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Display name for the search folder."},
+                "category": {
+                    "type": "string",
+                    "description": "Convenience: builds filter categories/any(c:c eq '<name>').",
+                },
+                "filter_query": {
+                    "type": "string",
+                    "description": "Explicit OData filter; overrides category if both given.",
+                },
+                "source_folders": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Folder names/well-known names to mine. Default ['inbox'].",
+                },
+                "include_nested": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "true = deep-search source subtrees; false = shallow.",
+                },
+            },
+            "required": ["name"],
+        },
+        "scope": "Mail.ReadWrite",
+    },
+    {
+        "name": "searchfolder-remove",
+        "description": (
+            "Delete a search folder by id (the reversibility primitive for search folders). Removes "
+            "only the virtual folder; never deletes any messages. Requires search-folder sign-in "
+            "(auth-login --mode folders)."
+        ),
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "folder_id": {
+                    "type": "string",
+                    "description": "Search folder id (from searchfolder-list --format detailed).",
+                },
+            },
+            "required": ["folder_id"],
+        },
+        "scope": "Mail.ReadWrite",
     },
 ]
 
@@ -546,6 +718,41 @@ def _resolve_folder_id(token: str, name: str) -> str:
     )
 
 
+def _master_categories(token: str) -> list:
+    """Return the mailbox master categories (id, displayName, color). Read-only."""
+    return _graph_get(token, "/me/outlook/masterCategories").get("value", [])
+
+
+def _find_category(cats: list, name: str) -> dict:
+    """Case-insensitive match of a category by displayName, or {} if absent."""
+    for c in cats:
+        if c.get("displayName", "").casefold() == name.casefold():
+            return c
+    return {}
+
+
+def _ensure_category(token: str, name: str, color: str = "preset9") -> dict:
+    """Create the named master category (coloured) if absent; return it. No-op if present (FR-005).
+
+    Requires MailboxSettings.ReadWrite (same as rule authoring). The displayName is immutable once
+    created, so an existing category is returned unchanged regardless of the requested colour.
+    """
+    existing = _find_category(_master_categories(token), name)
+    if existing:
+        return existing
+    return _http(
+        "POST",
+        f"{GRAPH}/me/outlook/masterCategories",
+        token=token,
+        body={"displayName": name, "color": color},
+    )
+
+
+def _filter_query_for_category(name: str) -> str:
+    """Build the OData filter for mail tagged a category, escaping single quotes by doubling."""
+    return f"categories/any(c:c eq '{name.replace(chr(39), chr(39) * 2)}')"
+
+
 # Action keys whose value is an opaque folder id we can resolve to a display name (read-only).
 _FOLDER_ACTION_KEYS = ("moveToFolder", "copyToFolder")
 
@@ -629,7 +836,10 @@ def cmd_auth_login(args) -> int:
             continue
         if resp.get("access_token"):
             _store_token_response(resp, fallback_scope=scope)
-            mode_note = "rule-authoring (write)" if args.mode == "rules" else "read-only"
+            mode_note = {
+                "rules": "rule-authoring (write)",
+                "folders": "search-folder (mail write)",
+            }.get(args.mode, "read-only")
             print(f"Signed in ({mode_note}). Scopes: {resp.get('scope') or scope}")
             return 0
     raise SteerError("Device-code sign-in timed out before authorisation. Run /msgraph-auth-login again.")
@@ -770,11 +980,18 @@ def cmd_rule_list(args) -> int:
 
 
 def cmd_rule_create(args) -> int:
-    """Install a verified move-to-folder rule.
+    """Install a verified rule that files to a folder and/or assigns a category.
 
-    Refuses without write scope or a prior verify (FR-009/FR-010).
+    Refuses without write scope, without a prior verify, or with no action (FR-009/FR-010).
     """
     tok = _authed_token(WRITE_SCOPE)
+    move_to_folder = getattr(args, "move_to_folder", None)
+    assign_category = getattr(args, "assign_category", None) or []
+    if not move_to_folder and not assign_category:
+        raise SteerError(
+            "Refusing to create this rule: no action given. Pass --move_to_folder and/or "
+            "--assign_category so the rule files and/or labels matching mail (it never deletes)."
+        )
     marker = read_verification(args.header_contains)
     if not marker:
         raise SteerError(
@@ -782,21 +999,31 @@ def cmd_rule_create(args) -> int:
             f"rule-verify --header_contains {args.header_contains} to preview the catch-set, "
             "then retry. (verify-then-install is a hard safety gate.)"
         )
-    folder_id = _resolve_folder_id(tok["access_token"], args.move_to_folder)
-    # Action is move-to-folder ONLY — a delete-style action is never constructed (FR-009/FR-012).
+    # Build actions conditionally — only move-to-folder and/or assign-category; never a delete-style
+    # action (FR-009/FR-012). Each assigned category is ensured to exist (coloured) first (FR-005).
+    actions: dict = {"stopProcessingRules": False}
+    summary = []
+    if move_to_folder:
+        actions["moveToFolder"] = _resolve_folder_id(tok["access_token"], move_to_folder)
+        summary.append(f'files it into "{move_to_folder}"')
+    if assign_category:
+        for cat in assign_category:
+            _ensure_category(tok["access_token"], cat)
+        actions["assignCategories"] = list(assign_category)
+        summary.append(f"assigns category {assign_category}")
     body = {
         "displayName": args.name,
         "sequence": 1,
         "isEnabled": True,
         "conditions": {"headerContains": list(args.header_contains)},
-        "actions": {"moveToFolder": folder_id, "stopProcessingRules": False},
+        "actions": actions,
     }
     created = _http(
         "POST", f"{GRAPH}/me/mailFolders/inbox/messageRules", token=tok["access_token"], body=body
     )
     print(
-        f'Created rule "{args.name}" (id: {created.get("id", "?")}). It files mail whose headers '
-        f'contain {args.header_contains} into "{args.move_to_folder}". '
+        f'Created rule "{args.name}" (id: {created.get("id", "?")}). For mail whose headers '
+        f'contain {args.header_contains}, it {" and ".join(summary)}. '
         f"Verified catch-set was {marker.get('count', '?')} message(s). "
         f"Reverse anytime with rule-remove."
     )
@@ -808,6 +1035,104 @@ def cmd_rule_remove(args) -> int:
     tok = _authed_token(WRITE_SCOPE)
     _http("DELETE", f"{GRAPH}/me/mailFolders/inbox/messageRules/{args.rule_id}", token=tok["access_token"])
     print(f"Removed rule {args.rule_id}. No messages were deleted; any mail already filed stays put.")
+    return 0
+
+
+def cmd_category_list(args) -> int:
+    """List the mailbox master categories, agent-legibly (name + colour). Read-only (FR-005)."""
+    tok = _authed_token("MailboxSettings.Read")
+    cats = _master_categories(tok["access_token"])
+    if args.format == "detailed":
+        print(json.dumps(cats, indent=2))
+        return 0
+    if not cats:
+        print("No master categories. Create one with category-ensure (rule-authoring sign-in).")
+        return 0
+    for c in cats:
+        print(f'- "{c.get("displayName", "(unnamed)")}"  ({c.get("color", "no colour")})')
+    print(f"{len(cats)} categor(y/ies).")
+    return 0
+
+
+def cmd_category_ensure(args) -> int:
+    """Create the named master category (coloured) if absent; no-op if present (FR-005)."""
+    tok = _authed_token(WRITE_SCOPE)
+    existing = _find_category(_master_categories(tok["access_token"]), args.name)
+    if existing:
+        colour = existing.get("color", "no colour")
+        print(f'Category "{args.name}" already exists ({colour}); no change.')
+        return 0
+    created = _ensure_category(tok["access_token"], args.name, args.color)
+    colour = created.get("color", args.color)
+    print(f'Created category "{args.name}" ({colour}). It now renders with a colour.')
+    return 0
+
+
+def cmd_searchfolder_list(args) -> int:
+    """List virtual search folders (name, filter, source scope, id). Read-only (FR-007/FR-009)."""
+    tok = _authed_token("Mail.Read")
+    data = _graph_get(tok["access_token"], "/me/mailFolders/searchfolders/childFolders")
+    folders = data.get("value", [])
+    if args.format == "detailed":
+        print(json.dumps(folders, indent=2))
+        return 0
+    if not folders:
+        print("No search folders. Create one with searchfolder-create (auth-login --mode folders).")
+        return 0
+    for f in folders:
+        scope = "deep" if f.get("includeNestedFolders") else "shallow"
+        n_src = len(f.get("sourceFolderIds") or [])
+        print(
+            f'- "{f.get("displayName", "(unnamed)")}"  (id: {f.get("id", "?")})'
+            f'\n    filter: {f.get("filterQuery", "(none)")}  [{scope} over {n_src} source folder(s)]'
+        )
+    print(f"{len(folders)} search folder(s). Pass --format detailed for full ids.")
+    return 0
+
+
+def cmd_searchfolder_create(args) -> int:
+    """Create a virtual mailSearchFolder (a saved filtered view). Never moves/deletes mail (FR-006/FR-009).
+
+    Requires the separate Mail.ReadWrite tier (auth-login --mode folders) — a read/rules token lacks
+    the grant, so this refuses structurally (FR-008/FR-012).
+    """
+    tok = _authed_token(SEARCHFOLDER_SCOPE)
+    filter_query = args.filter_query or (_filter_query_for_category(args.category) if args.category else None)
+    if not filter_query:
+        raise SteerError(
+            "Refusing to create this search folder: no filter given. Pass --category NAME "
+            "(builds a category filter) or an explicit --filter_query (OData)."
+        )
+    source_names = args.source_folders or ["inbox"]
+    # Well-known names (inbox, archive, …) are accepted verbatim by Graph; resolve any others to ids.
+    _WELL_KNOWN = {"inbox", "archive", "drafts", "sentitems", "deleteditems", "junkemail", "msgfolderroot"}
+    source_ids = [
+        n if n.casefold() in _WELL_KNOWN else _resolve_folder_id(tok["access_token"], n)
+        for n in source_names
+    ]
+    body = {
+        "@odata.type": "microsoft.graph.mailSearchFolder",
+        "displayName": args.name,
+        "includeNestedFolders": bool(args.include_nested),
+        "sourceFolderIds": source_ids,
+        "filterQuery": filter_query,
+    }
+    created = _http(
+        "POST", f"{GRAPH}/me/mailFolders/searchfolders/childFolders", token=tok["access_token"], body=body
+    )
+    print(
+        f'Created search folder "{args.name}" (id: {created.get("id", "?")}). It presents a filtered '
+        f"view (filter: {filter_query}) over {source_names}; it is virtual — no mail is moved or "
+        f"deleted. Remove anytime with searchfolder-remove."
+    )
+    return 0
+
+
+def cmd_searchfolder_remove(args) -> int:
+    """Delete a search folder by id. Removes only the virtual folder, never mail (FR-007/FR-009)."""
+    tok = _authed_token(SEARCHFOLDER_SCOPE)
+    _http("DELETE", f"{GRAPH}/me/mailFolders/{args.folder_id}", token=tok["access_token"])
+    print(f"Removed search folder {args.folder_id}. No messages were affected; it was only a filtered view.")
     return 0
 
 
@@ -823,6 +1148,11 @@ _HANDLERS = {
     "rule-verify": cmd_rule_verify,
     "rule-create": cmd_rule_create,
     "rule-remove": cmd_rule_remove,
+    "category-list": cmd_category_list,
+    "category-ensure": cmd_category_ensure,
+    "searchfolder-list": cmd_searchfolder_list,
+    "searchfolder-create": cmd_searchfolder_create,
+    "searchfolder-remove": cmd_searchfolder_remove,
 }
 
 
@@ -835,11 +1165,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.choices["describe"].add_argument("--name", help="describe a single verb instead of the catalog")
     sub.choices["auth-login"].add_argument(
-        "--mode", choices=["read", "rules"], default="read", help="read (default) or rules (write escalation)"
+        "--mode",
+        choices=["read", "rules", "folders"],
+        default="read",
+        help="read (default), rules (rule-authoring escalation), or folders (search-folder escalation)",
     )
     for verb in ("mail-list",):
         sub.choices[verb].add_argument("--limit", type=int, default=25, help="max items (pagination)")
-    for verb in ("mail-list", "mail-get", "rule-list", "rule-verify"):
+    for verb in ("mail-list", "mail-get", "rule-list", "rule-verify", "category-list", "searchfolder-list"):
         sub.choices[verb].add_argument("--format", choices=["concise", "detailed"], default="concise")
     sub.choices["mail-get"].add_argument("--message_id", required=True, help="Graph message id")
     sub.choices["rule-verify"].add_argument(
@@ -853,8 +1186,31 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SUBSTR",
         help="predicate substrings (must match a prior verify)",
     )
-    sub.choices["rule-create"].add_argument("--move_to_folder", required=True, help="target folder name")
+    sub.choices["rule-create"].add_argument(
+        "--move_to_folder", help="optional target folder name (files matching mail there)"
+    )
+    sub.choices["rule-create"].add_argument(
+        "--assign_category", nargs="+", metavar="NAME", help="optional category name(s) to assign"
+    )
     sub.choices["rule-remove"].add_argument("--rule_id", required=True, help="Graph rule id")
+
+    sub.choices["category-ensure"].add_argument("--name", required=True, help="category display name")
+    sub.choices["category-ensure"].add_argument("--color", default="preset9", help="categoryColor preset")
+
+    sfc = sub.choices["searchfolder-create"]
+    sfc.add_argument("--name", required=True, help="search folder display name")
+    sfc.add_argument("--category", help="build a category filter for this name")
+    sfc.add_argument("--filter_query", help="explicit OData filter (overrides --category)")
+    sfc.add_argument(
+        "--source_folders", nargs="+", metavar="FOLDER", help="folders to mine (default: inbox)"
+    )
+    sfc.add_argument(
+        "--include_nested",
+        type=lambda v: str(v).lower() not in ("false", "0", "no"),
+        default=True,
+        help="deep-search source subtrees (default true)",
+    )
+    sub.choices["searchfolder-remove"].add_argument("--folder_id", required=True, help="search folder id")
     return parser
 
 

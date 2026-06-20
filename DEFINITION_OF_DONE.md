@@ -7,16 +7,23 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 
 - [ ] **Auth** — device-code login works end-to-end; token cached at
       `${XDG_STATE_HOME:-~/.local/state}/msgraph-stdlib/token.json` (`0600`, outside the repo) and
-      transparently refreshed. Two distinct modes: read-only (`Mail.Read`) and
-      rule-authoring (`+ MailboxSettings.ReadWrite`).
+      transparently refreshed. Three distinct modes (the scope ratchet): read-only (`Mail.Read`),
+      rule-authoring (`+ MailboxSettings.ReadWrite`), and search-folder (`Mail.ReadWrite`).
 - [ ] **Mail read** — `mail-list` and `mail-get` return messages and their internet headers,
       read-only, with concise/detailed output and a sane pagination default.
 - [ ] **Rule read** — `rule-list` enumerates existing Outlook `messageRule`s, agent-legibly.
 - [ ] **Rule verify** — `rule-verify` takes candidate predicates and returns the **read-only
       catch-set** (the messages the rule would match) without writing anything.
-- [ ] **Rule create** — `rule-create` installs a predicate→move-to-folder rule, and **refuses**
-      unless a catch-set has been verified for it.
+- [ ] **Rule create** — `rule-create` installs a predicate→move-to-folder **and/or assign-category**
+      rule, and **refuses** unless a catch-set has been verified for it (and unless it has an action).
 - [ ] **Rule remove** — `rule-remove` deletes a rule by id (the reversibility primitive).
+- [ ] **Categories** — `category-list` enumerates the mailbox master categories; `category-ensure`
+      create-if-absent a named category (coloured), under the rule-authoring scope. `rule-create`
+      ensures any category it assigns so labels always render with a colour.
+- [ ] **Search folders** — `searchfolder-create` makes a virtual `mailSearchFolder` (a saved,
+      category-filtered view; never moves/deletes mail) under the **separate** `Mail.ReadWrite` tier;
+      `searchfolder-list` enumerates them agent-legibly; `searchfolder-remove` deletes one by id
+      (reversibility primitive — affects only the virtual folder, never mail).
 
 ## Constraints (any failure = not done)
 
@@ -26,10 +33,13 @@ plugin is "done" for its first release when **every** box below is true. Read `C
       the working tree are clean of secrets; storage is the external XDG path only. No git-crypt
       dependency.
 - [ ] **Read cannot mutate.** Read-only mode holds `Mail.Read` only; no write endpoint is reachable
-      from any read skill. Write capability exists *only* after explicit `MailboxSettings.ReadWrite`
-      opt-in.
+      from any read skill. Write capability exists *only* after explicit opt-in, and each write tier is
+      a **separate, distinctly-consented** scope: rule/category authoring (`MailboxSettings.ReadWrite`)
+      and search-folder creation (`Mail.ReadWrite`, `--mode folders`) are independent ratchet steps —
+      neither read nor rule-authoring tokens can create a search folder.
 - [ ] **No imperative per-message mutation.** The plugin never archives/moves/deletes an individual
-      message itself; organisation happens only via installed rules, which file (never delete).
+      message itself; organisation happens only via installed rules, which file or label (never delete).
+      Search folders are **virtual saved views** — creating or removing one moves/deletes no mail.
 - [ ] **Agent-friendly.** Every skill meets `docs/AGENT-FRIENDLY.md`: onboarding-quality
       `description` (incl. when-to-use), flat JSON-schema inputs, agent-legible output (IDs resolved
       to names; concise/detailed), steering error messages, accurate `annotations`.

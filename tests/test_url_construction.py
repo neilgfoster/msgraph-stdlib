@@ -87,7 +87,10 @@ class VerbUrlConstructionTest(unittest.TestCase):
             {
                 "access_token": "fake-access",
                 "refresh_token": "fake-refresh",
-                "scope": "Mail.Read MailboxSettings.Read MailboxSettings.ReadWrite offline_access",
+                "scope": (
+                    "Mail.Read Mail.ReadWrite MailboxSettings.Read "
+                    "MailboxSettings.ReadWrite offline_access"
+                ),
                 "expires_at": time.time() + 3600,
             }
         )
@@ -134,6 +137,45 @@ class VerbUrlConstructionTest(unittest.TestCase):
 
     def test_rule_list_url_is_valid(self):
         self._run(client.cmd_rule_list, _Args(format="concise"))
+        self.assertTrue(self.urls)
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    # --- feature 003: master categories + search folders ---------------------------------------
+
+    def test_category_list_url_is_valid(self):
+        self._run(client.cmd_category_list, _Args(format="concise"))
+        self.assertTrue(self.urls)
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_category_ensure_get_and_post_urls_are_valid(self):
+        # GET (absent → {"value": []}) then POST to masterCategories.
+        self._run(client.cmd_category_ensure, _Args(name="Needs attention", color="preset9"))
+        self.assertTrue(any("masterCategories" in u for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_searchfolder_list_url_is_valid(self):
+        self._run(client.cmd_searchfolder_list, _Args(format="concise"))
+        self.assertTrue(any("searchfolders/childFolders" in u for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_searchfolder_create_url_with_category_filter_is_valid(self):
+        # The filterQuery carries spaces and quotes — it lives in the POST body (not the URL), but the
+        # POST path itself must be valid; assert no query/path corruption regardless.
+        self._run(
+            client.cmd_searchfolder_create,
+            _Args(name="Needs attention", category="Needs attention", filter_query=None,
+                  source_folders=["inbox"], include_nested=True),
+        )
+        self.assertTrue(any(u.endswith("/me/mailFolders/searchfolders/childFolders") for u in self.urls))
+        for url in self.urls:
+            _assert_valid_url(self, url)
+
+    def test_searchfolder_remove_url_is_valid(self):
+        self._run(client.cmd_searchfolder_remove, _Args(folder_id="AAMk=Sf/Id"))
         self.assertTrue(self.urls)
         for url in self.urls:
             _assert_valid_url(self, url)
