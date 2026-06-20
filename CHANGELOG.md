@@ -14,3 +14,42 @@ workflow refuses to publish a tag that disagrees with it.
 Add notes here under Added / Changed / Fixed / Removed. On release, move them under a new
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
+
+## [0.1.0] - 2026-06-20
+
+First release. A stdlib-only, zero-backend Claude Code plugin for Microsoft Graph (Outlook): read
+mail and author safe, verified, reversible Outlook message rules, plus category labelling and virtual
+category search folders. No third-party dependencies (just `urllib` + `json`), no backend — the
+constraint is the product: portable, auditable, no supply-chain surface.
+
+### Added
+
+- **Auth** — OAuth 2.0 device-code sign-in; token cached `0600` outside the repo at the XDG path and
+  silently refreshed. A three-tier scope ratchet: read-only (`Mail.Read + MailboxSettings.Read`,
+  default), rule authoring (`+ MailboxSettings.ReadWrite`, `--mode rules`), and search folders
+  (`Mail.ReadWrite`, `--mode folders`) — each a separate, deliberate, auditable escalation.
+- **Mail read** — `mail-list` and `mail-get` (including internet headers like `List-Unsubscribe`),
+  concise/detailed output, pagination default.
+- **Rules** — `rule-list` (agent-legible), `rule-verify` (read-only catch-set), `rule-create` (files
+  to a folder **and/or** assigns a coloured category; refuses unless a catch-set was verified and an
+  action is given), `rule-remove` (the reversibility primitive).
+- **Categories** — `category-list` and `category-ensure` (create-if-absent coloured master category)
+  so assigned labels always render with a colour, under the rule-authoring scope.
+- **Search folders** — `searchfolder-create` / `searchfolder-list` / `searchfolder-remove` for virtual
+  `mailSearchFolder` views (e.g. all mail tagged a category) behind the separate `Mail.ReadWrite` tier;
+  creating or removing one never moves or deletes mail.
+- **Discovery** — `python3 -m msgraph.client describe` emits the runtime `TOOLS` catalog (the
+  zero-backend equivalent of MCP `tools/list`).
+
+### Safety model
+
+- Read-only by default — the token carries no write grant, so even a bug cannot mutate mail.
+- Verify-then-act: a rule is checked against real mail before it can be installed.
+- Reversible by construction: rules file or label (never delete); search folders are virtual views;
+  no imperative per-message mutation anywhere.
+
+### Quality
+
+- Offline unit tests over a single mockable HTTP seam **plus** real-URL construction coverage; ruff
+  lint + format clean; a stdlib-only import guard enforced in CI. All capabilities live-proven against
+  a real mailbox and reverted cleanly.
