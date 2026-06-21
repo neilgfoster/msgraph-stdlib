@@ -71,7 +71,10 @@ Two-tier: `plugin/` is the shippable payload; the repo root is the build/distrib
 .claude-plugin/marketplace.json          # marketplace entry — points at ./plugin
 plugin/.claude-plugin/plugin.json        # plugin manifest
 plugin/skills/<subject>-<verb>/SKILL.md  # agent-facing commands (auth, mail-read, rule-*)
-plugin/src/msgraph/client.py             # stdlib kernel — importable + runnable, exposes a `describe` catalog
+plugin/src/msgraph/                      # stdlib kernel package (importable + runnable)
+  client.py                              #   thin CLI entrypoint — argparse dispatch + `describe`
+  runtime.py                             #   HTTP seam, token cache, markers, Graph primitives
+  catalog.py render.py graph.py verbs.py #   TOOLS catalog · output shaping · Graph helpers · verbs
 docs/AGENT-FRIENDLY.md                   # REQUIRED READING before adding/changing a skill
 pyproject.toml  tests/  .github/         # dev tooling, tests, CI/release (never shipped)
 DEFINITION_OF_DONE.md                    # what "working" means — the build target
