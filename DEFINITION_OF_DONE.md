@@ -7,8 +7,10 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 
 - [ ] **Auth** — device-code login works end-to-end; token cached at
       `${XDG_STATE_HOME:-~/.local/state}/msgraph-stdlib/token.json` (`0600`, outside the repo) and
-      transparently refreshed. Three distinct modes (the scope ratchet): read-only (`Mail.Read`),
-      rule-authoring (`+ MailboxSettings.ReadWrite`), and search-folder (`Mail.ReadWrite`).
+      transparently refreshed. Four distinct modes (the scope ratchet): read-only
+      (`Mail.Read + MailboxSettings.Read`), rule-authoring (`+ MailboxSettings.ReadWrite`),
+      search-folder (`Mail.ReadWrite`, `--mode folders`), and message-move (`Mail.ReadWrite`,
+      `--mode messages`).
 - [ ] **Mail read** — `mail-list` and `mail-get` return messages and their internet headers,
       read-only, with concise/detailed output and a sane pagination default.
 - [ ] **Rule read** — `rule-list` enumerates existing Outlook `messageRule`s, agent-legibly.
@@ -24,6 +26,11 @@ plugin is "done" for its first release when **every** box below is true. Read `C
       category-filtered view; never moves/deletes mail) under the **separate** `Mail.ReadWrite` tier;
       `searchfolder-list` enumerates them agent-legibly; `searchfolder-remove` deletes one by id
       (reversibility primitive — affects only the virtual folder, never mail).
+- [ ] **Per-message move** — `message-move` files one or more messages to a destination folder
+      (`POST /me/messages/{id}/move`), **move-only and reversible** (move them back), under the
+      **separate** message-write tier (`Mail.ReadWrite`, `--mode messages`). `--dry_run` previews the
+      exact set that would move without writing; the batch is per-message (one stale id never aborts
+      the rest). It never deletes, and no delete-capable scope is requested anywhere.
 
 ## Constraints (any failure = not done)
 
@@ -32,19 +39,28 @@ plugin is "done" for its first release when **every** box below is true. Read `C
 - [ ] **No secrets in the repo.** No token/credential file under version control; `git log -p` and
       the working tree are clean of secrets; storage is the external XDG path only. No git-crypt
       dependency.
-- [ ] **Read cannot mutate.** Read-only mode holds `Mail.Read` only; no write endpoint is reachable
-      from any read skill. Write capability exists *only* after explicit opt-in, and each write tier is
-      a **separate, distinctly-consented** scope: rule/category authoring (`MailboxSettings.ReadWrite`)
-      and search-folder creation (`Mail.ReadWrite`, `--mode folders`) are independent ratchet steps —
-      neither read nor rule-authoring tokens can create a search folder.
-- [ ] **No imperative per-message mutation.** The plugin never archives/moves/deletes an individual
-      message itself; organisation happens only via installed rules, which file or label (never delete).
-      Search folders are **virtual saved views** — creating or removing one moves/deletes no mail.
+- [ ] **A read token cannot mutate.** Read-only mode holds `Mail.Read + MailboxSettings.Read` only; no
+      write endpoint is reachable from any read skill. Write capability exists *only* after explicit
+      opt-in, and each write tier is a **separate, distinctly-consented** scope: rule/category authoring
+      (`MailboxSettings.ReadWrite`), search-folder creation (`Mail.ReadWrite`, `--mode folders`), and
+      message move (`Mail.ReadWrite`, `--mode messages`) are independent ratchet steps — a read or
+      rule-authoring token can neither create a search folder nor move a message.
+- [ ] **Move is the only per-message mutation — and it can never delete.** `message-move` is the sole
+      imperative per-message action; it **files messages to a folder (move-only) and is reversible**
+      (move them back), gated behind its own separately-consented `Mail.ReadWrite` tier
+      (`--mode messages`). **No verb deletes a message and no delete-capable scope is ever requested**,
+      so deletion stays *structurally* impossible — a bug cannot delete because the token carries no
+      such grant. Rules still only file or label (never delete); search folders are **virtual saved
+      views** — creating or removing one moves/deletes no mail.
 - [ ] **Agent-friendly.** Every skill meets `docs/AGENT-FRIENDLY.md`: onboarding-quality
       `description` (incl. when-to-use), flat JSON-schema inputs, agent-legible output (IDs resolved
       to names; concise/detailed), steering error messages, accurate `annotations`.
-- [ ] **Discoverable.** `python3 -m msgraph.client describe` (and `--name <verb>`) emits the `TOOLS`
-      catalog — name + description + input schema + annotations for every verb.
+- [ ] **Discoverable.** `python3 -m msgraph.client describe` (and `--name <verb>`) emits the single
+      `TOOLS` catalog — name + description + input schema + annotations for every verb. The kernel is a
+      **layered `msgraph` package** — a thin `client.py` entrypoint (argparse dispatch + `describe`)
+      over `runtime.py` (the `_http` seam, token cache, markers + catch-set, Graph primitives),
+      `catalog.py` (the `TOOLS` catalog), `render.py`, `graph.py`, and `verbs.py` — still importable
+      AND runnable, via both `python3 -m msgraph.client …` and the file-path form.
 
 ## Quality / hygiene
 
@@ -71,7 +87,8 @@ for the full walkthrough): a personal Microsoft account has **no tenant** by def
 create one via the Azure free trial (card-verified; tenant + app reg are free forever after the trial
 lapses); register the app at **entra.microsoft.com** (not portal.azure.com) as **Personal Microsoft
 accounts only**, blank redirect URI, **Allow public client flows = Yes** (Authentication → Settings
-sub-tab), delegated `Mail.Read` + `MailboxSettings.Read` (+ `MailboxSettings.ReadWrite`); export
+sub-tab), delegated `Mail.Read` + `MailboxSettings.Read` (+ `MailboxSettings.ReadWrite` for rule/
+category authoring, + `Mail.ReadWrite` for search folders and message move); export
 `MSGRAPH_CLIENT_ID` and `MSGRAPH_TENANT_ID="consumers"`.
 
 A reviewer can, from a clean checkout + the one-time Azure app reg above:
@@ -84,5 +101,9 @@ A reviewer can, from a clean checkout + the one-time Azure app reg above:
 5. `rule-create` → the verified rule appears in Outlook's own Rules UI and files matching mail to a
    folder.
 6. `rule-remove` → the rule is gone; organisation undone.
+7. `auth-login --mode messages` → consents to the separate `Mail.ReadWrite` message-write tier.
+8. `message-move --dry_run true` → previews the exact set that would move (nothing written); then
+   `message-move` files those messages to a folder, and moving them back restores them — proving the
+   action is move-only and reversible, with no delete path anywhere.
 
 When all of the above hold, msgraph-stdlib v0.1 is done and ready for kypr to consume.

@@ -34,28 +34,37 @@ This is the heart of the plugin; do not weaken it for convenience.
 
 - **Read is `Mail.Read`-only.** Requesting only `Mail.Read` makes "cannot mutate mail" *structural*:
   even a bug cannot archive/move/delete, because the token carries no write grant.
-- **Scope ratchet.** Rule authoring needs the **separate** `MailboxSettings.ReadWrite` scope. Keep
-  the two scopes in distinct auth modes so a read-only user never holds write capability. Escalating
-  is a deliberate, auditable act (the OAuth consent grant is the record).
+- **Scope ratchet.** Each write capability is a **separate**, distinctly-consented tier in its own auth
+  mode, so a read-only user never holds write capability: rule/category authoring
+  (`MailboxSettings.ReadWrite`, `--mode rules`), search folders (`Mail.ReadWrite`, `--mode folders`),
+  and message move (`Mail.ReadWrite`, `--mode messages`). Escalating is a deliberate, auditable act
+  (the OAuth consent grant is the record).
 - **Verify-then-install.** Before creating a rule, compute its **real catch-set read-only** (which
   messages it would match) and surface that for confirmation. `headerContains` is coarse substring
   matching over raw headers, so a rule is **never trusted in the abstract** — always checked against
   actual mail first.
-- **Reversible by construction.** Rule actions **file to a folder; never delete.** Removing one rule
-  undoes the organisation. No imperative per-message mutation anywhere in this plugin.
+- **Reversible by construction, and never delete.** Rule actions **file to a folder; never delete** —
+  removing one rule undoes the organisation. The one imperative per-message action, `message-move`, is
+  **move-only and reversible** (move it back) behind its own `--mode messages` tier. **No verb deletes
+  a message and no delete-capable scope is ever requested**, so deletion is structurally impossible.
 
-## Capabilities to build (the verbs)
+## Capabilities (the verbs — all shipped)
 
-Group into skills under `plugin/skills/<subject>-<verb>/`, all backed by the `plugin/src/msgraph/` kernel:
+14 verbs (+ `describe`) live as skills under `plugin/skills/<subject>-<verb>/`, all backed by the
+`plugin/src/msgraph/` kernel. `describe` is the live source of truth for this list:
 
-| Skill | Scope | Notes |
+| Skill | Scope (auth mode) | Notes |
 |---|---|---|
-| `auth-login` | `Mail.Read + MailboxSettings.Read` (default read-only) or `Mail.Read + MailboxSettings.ReadWrite` (opt-in) | device-code flow; cache token at the XDG path; refresh via refresh-token |
+| `auth-login` | tiered: `Mail.Read + MailboxSettings.Read` (read, default) · `+ MailboxSettings.ReadWrite` (`--mode rules`) · `Mail.ReadWrite` (`--mode folders`) · `Mail.ReadWrite` (`--mode messages`) | device-code flow; cache token at the XDG path; refresh via refresh-token |
 | `mail-list` / `mail-get` | `Mail.Read` | list/get messages incl. headers (`internetMessageHeaders`); concise/detailed; pagination default |
-| `rule-list` | `MailboxSettings.Read` *(rules are mailbox settings; included in read-only mode — resolved during `plan`)* | enumerate existing `messageRule`s, agent-legible |
+| `message-move` | `Mail.ReadWrite` (`--mode messages`) | move message(s) to a folder (`POST /me/messages/{id}/move`); MOVE-only, reversible, never delete; `--dry_run` preview; batch-safe per-message outcome |
+| `rule-list` | `MailboxSettings.Read` *(rules are mailbox settings; included in read-only mode)* | enumerate existing `messageRule`s, agent-legible |
 | `rule-verify` | `Mail.Read` | given candidate predicates (e.g. `headerContains: ["List-Unsubscribe"]`), compute and return the **read-only catch-set** — no write |
-| `rule-create` | `MailboxSettings.ReadWrite` | install a verified rule (predicate → move-to-folder action). Refuse unless a catch-set was verified |
+| `rule-create` | `MailboxSettings.ReadWrite` | install a verified rule (predicate → move-to-folder **and/or assign-category** action). Refuse unless a catch-set was verified |
 | `rule-remove` | `MailboxSettings.ReadWrite` | delete a rule by id (the reversibility primitive) |
+| `category-list` / `category-ensure` | `MailboxSettings.Read` / `MailboxSettings.ReadWrite` | list master categories; create-if-absent a coloured category (idempotent) |
+| `folder-list` | `Mail.Read` | list real mail folders as a nested tree (counts), read-only |
+| `searchfolder-list` / `searchfolder-create` / `searchfolder-remove` | `Mail.Read` / `Mail.ReadWrite` (`--mode folders`) | list / create / remove virtual `mailSearchFolder` views; never move or delete mail |
 
 Graph endpoints are simple REST over `urllib`; `messageRule` lives under
 `/me/mailFolders/inbox/messageRules`. `messageRulePredicates.headerContains` is **Graph v1.0 GA**.
@@ -64,7 +73,8 @@ Graph endpoints are simple REST over `urllib`; `messageRule` lives under
 
 Azure AD **app registration**: public client, device-code/public-client flow enabled, delegated
 permissions `Mail.Read` + `MailboxSettings.Read` (read-only: read mail and list rules) (+
-`MailboxSettings.ReadWrite` for rule authoring). Personal accounts need no admin consent. The session should read `MSGRAPH_CLIENT_ID` / `MSGRAPH_TENANT_ID` (default tenant
+`MailboxSettings.ReadWrite` for rule/category authoring, + `Mail.ReadWrite` for search folders and
+message move). Personal accounts need no admin consent. The session should read `MSGRAPH_CLIENT_ID` / `MSGRAPH_TENANT_ID` (default tenant
 `consumers` or `common`) from the environment — never hardcode them. Document this in
 `plugin/skills/auth-login` and the README. **This is not blocking** for `specify`/`clarify`/`plan`/`tasks`
 or for offline-testable code; only live auth/integration testing needs it.
@@ -101,12 +111,16 @@ or advertise it.
 reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
 
 <!-- SPECKIT START -->
-Active feature plan: `specs/004-split-client-module/plan.md` (pure structural refactor — split the
-~1519-line `client.py` god module into a layered `msgraph` package: `runtime.py` owns the `_http`
-seam + mutable state + token/marker/catch-set + `_graph_*` primitives; `catalog.py` = TOOLS;
-`render.py`; `graph.py`; `verbs.py`; `client.py` becomes a thin entrypoint. One-way DAG; no
-behavioural change; tests re-point only the four rebound seam/state names to `runtime.*`; research,
-data-model, contracts/module-boundaries.md, quickstart alongside it). Prior feature plans:
+Active feature plan: `specs/005-docs-refresh/plan.md` (documentation-only refresh to match shipped
+0.3.0 — add `message-move` + the `--mode messages` tier across the docs, describe the layered package,
+and HONESTLY reconcile `DEFINITION_OF_DONE.md`'s "No imperative per-message mutation" constraint to its
+true narrower guarantee: move-only, never-delete, reversible, separately consented; no code change,
+suite stays green; research/data-model/contracts/doc-claims.md/quickstart alongside it). Prior feature
+plans: `specs/004-split-client-module/plan.md` (pure structural refactor — split the ~1519-line
+`client.py` god module into a layered `msgraph` package: `runtime.py` owns the `_http` seam + mutable
+state + token/marker/catch-set + `_graph_*` primitives; `catalog.py` = TOOLS; `render.py`; `graph.py`;
+`verbs.py`; `client.py` thin entrypoint; one-way DAG; tests re-point the four rebound seam/state names
+to `runtime.*`). Prior feature plans:
 `specs/003-categorise-and-search-folders/plan.md` (category rules + search folders + `--mode folders`;
 note message-move `--mode messages` shipped after, on `main`), `specs/002-fix-graph-query-encoding/plan.md`
 (percent-encode Graph query params + real-URL coverage), `specs/001-msgraph-mail-rules/plan.md`

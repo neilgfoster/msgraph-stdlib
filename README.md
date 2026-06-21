@@ -14,6 +14,9 @@ It gives an agent these capabilities, with safety built into the *structure*, no
    they always render with a colour.
 4. **Create category search folders** — virtual `mailSearchFolder` views over a category, behind a
    *separate* `Mail.ReadWrite` sign-in tier. A search folder never moves or deletes mail.
+5. **Move messages** — re-file one or more messages to a folder (`message-move`), behind a *separate*
+   `Mail.ReadWrite` sign-in tier (`--mode messages`). MOVE-only and reversible, with a `--dry_run`
+   preview; it never deletes (no delete-capable scope is ever requested).
 
 ## Verbs (skills)
 
@@ -32,6 +35,7 @@ Each skill is a thin wrapper over the stdlib kernel; the runtime catalog is the 
 | `rule-remove` | `MailboxSettings.ReadWrite` | Delete a rule by id (the reversibility primitive). |
 | `category-list` | `MailboxSettings.Read` | List the mailbox master categories (name + colour). |
 | `category-ensure` | `MailboxSettings.ReadWrite` | Create a coloured category if absent (idempotent). |
+| `folder-list` | `Mail.Read` | List the real mail folders as a nested tree (name, total/unread counts), read-only. |
 | `searchfolder-list` | `Mail.Read` | Enumerate existing virtual search folders agent-legibly. |
 | `searchfolder-create` | `Mail.ReadWrite` (`--mode folders`) | Create a virtual category search-folder view; never touches mail. |
 | `searchfolder-remove` | `Mail.ReadWrite` (`--mode folders`) | Delete a search folder by id (affects only the view, never mail). |
@@ -129,10 +133,12 @@ grep -rnE '^\s*(import|from)\s+(msal|azure|requests|urllib3|httpx|aiohttp|pydant
 
 ## Status
 
-v0.1 implemented spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`): the
-verbs above, the runtime `describe` catalog, and offline unit tests (Graph HTTP boundary
-mocked). Live auth/Graph behaviour requires the one-time Azure app registration above. See
-`DEFINITION_OF_DONE.md` for the target and `CLAUDE.md` for the build plan.
+Built spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`). As of **v0.3.0**:
+the 14 verbs above (+ `describe`) across the four-tier scope ratchet, the runtime `describe` catalog,
+and offline unit tests (Graph HTTP boundary mocked) — all behind a layered `msgraph` package (thin
+`client.py` entrypoint over `runtime`/`catalog`/`render`/`graph`/`verbs`). Live auth/Graph behaviour
+requires the one-time Azure app registration above. See `DEFINITION_OF_DONE.md` for the target and
+`CLAUDE.md` for the build plan.
 
 ## License
 
