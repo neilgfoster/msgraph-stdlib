@@ -92,7 +92,7 @@ or advertise it.
 | `.claude-plugin/marketplace.json` | Marketplace entry — plugin `source` points at `./plugin` |
 | `plugin/.claude-plugin/plugin.json` | Plugin manifest (lives inside the shippable payload) |
 | `plugin/skills/<subject>-<verb>/SKILL.md` | Agent-facing commands |
-| `plugin/src/msgraph/client.py` | Stdlib kernel — importable AND runnable; owns the `describe` catalog |
+| `plugin/src/msgraph/` | Stdlib kernel package (importable AND runnable). `client.py` = thin CLI entrypoint owning dispatch + `describe`; `runtime.py` = HTTP seam + token cache + markers + Graph primitives (patch the seam here); `catalog.py` = TOOLS; `render.py`/`graph.py`/`verbs.py` = shaping/helpers/verbs |
 | `docs/AGENT-FRIENDLY.md` | **Required reading** — agent-tool design principles |
 | `pyproject.toml`, `tests/`, `.github/` | Dev tooling, tests, CI/release — never shipped in `plugin/` |
 
@@ -101,11 +101,15 @@ or advertise it.
 reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
 
 <!-- SPECKIT START -->
-Active feature plan: `specs/003-categorise-and-search-folders/plan.md` (extend the kernel with
-category-assigning rules + category-ensure under the existing rule-authoring scope, and
-search-folder create/list/remove behind a NEW `Mail.ReadWrite` auth tier `--mode folders`; research,
-data-model, contracts/tools.md, quickstart alongside it). Prior feature plans:
-`specs/002-fix-graph-query-encoding/plan.md` (percent-encode Graph query params + real-URL coverage)
-and `specs/001-msgraph-mail-rules/plan.md` (foundation: stdlib-only device-code design, `TOOLS`
-catalog contract, safety-model decisions) — read them for the technical context before implementing.
+Active feature plan: `specs/004-split-client-module/plan.md` (pure structural refactor — split the
+~1519-line `client.py` god module into a layered `msgraph` package: `runtime.py` owns the `_http`
+seam + mutable state + token/marker/catch-set + `_graph_*` primitives; `catalog.py` = TOOLS;
+`render.py`; `graph.py`; `verbs.py`; `client.py` becomes a thin entrypoint. One-way DAG; no
+behavioural change; tests re-point only the four rebound seam/state names to `runtime.*`; research,
+data-model, contracts/module-boundaries.md, quickstart alongside it). Prior feature plans:
+`specs/003-categorise-and-search-folders/plan.md` (category rules + search folders + `--mode folders`;
+note message-move `--mode messages` shipped after, on `main`), `specs/002-fix-graph-query-encoding/plan.md`
+(percent-encode Graph query params + real-URL coverage), `specs/001-msgraph-mail-rules/plan.md`
+(foundation: stdlib-only device-code design, `TOOLS` catalog contract, safety-model decisions) — read
+them for the technical context before implementing.
 <!-- SPECKIT END -->

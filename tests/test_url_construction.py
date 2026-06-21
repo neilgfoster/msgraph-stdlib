@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "plugin" / "src"))
 
 import msgraph.client as client  # noqa: E402
+import msgraph.runtime as runtime  # noqa: E402
 
 
 def _assert_valid_url(testcase: unittest.TestCase, url: str) -> None:
@@ -79,10 +80,10 @@ class VerbUrlConstructionTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = Path(self._tmp.name)
-        self._orig = (client.STATE_DIR, client.TOKEN_PATH, client.MARKER_PATH, client._http)
-        client.STATE_DIR = tmp
-        client.TOKEN_PATH = tmp / "token.json"
-        client.MARKER_PATH = tmp / "verifications.json"
+        self._orig = (runtime.STATE_DIR, runtime.TOKEN_PATH, runtime.MARKER_PATH, runtime._http)
+        runtime.STATE_DIR = tmp
+        runtime.TOKEN_PATH = tmp / "token.json"
+        runtime.MARKER_PATH = tmp / "verifications.json"
         client.save_token(
             {
                 "access_token": "fake-access",
@@ -99,10 +100,10 @@ class VerbUrlConstructionTest(unittest.TestCase):
             self.urls.append(url)
             return {"value": []}
 
-        client._http = capture
+        runtime._http = capture
 
     def tearDown(self):
-        client.STATE_DIR, client.TOKEN_PATH, client.MARKER_PATH, client._http = self._orig
+        runtime.STATE_DIR, runtime.TOKEN_PATH, runtime.MARKER_PATH, runtime._http = self._orig
         self._tmp.cleanup()
 
     def _run(self, fn, args):

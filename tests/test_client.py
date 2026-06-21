@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "plugin" / "src"))
 
 import msgraph.client as client  # noqa: E402
+import msgraph.runtime as runtime  # noqa: E402
 
 
 class _Args:
@@ -30,7 +31,7 @@ class _Args:
 
 
 class _HttpRecorder:
-    """Drop-in replacement for client._http that records calls and returns canned payloads.
+    """Drop-in replacement for runtime._http that records calls and returns canned payloads.
 
     Lets a test assert *which* HTTP verbs/endpoints a command reaches — the structural check that a
     read-only verb never touches a write endpoint and rule-remove issues exactly one DELETE.
@@ -54,13 +55,13 @@ class StatePathMixin(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = Path(self._tmp.name)
-        self._orig = (client.STATE_DIR, client.TOKEN_PATH, client.MARKER_PATH, client._http)
-        client.STATE_DIR = tmp
-        client.TOKEN_PATH = tmp / "token.json"
-        client.MARKER_PATH = tmp / "verifications.json"
+        self._orig = (runtime.STATE_DIR, runtime.TOKEN_PATH, runtime.MARKER_PATH, runtime._http)
+        runtime.STATE_DIR = tmp
+        runtime.TOKEN_PATH = tmp / "token.json"
+        runtime.MARKER_PATH = tmp / "verifications.json"
 
     def tearDown(self):
-        client.STATE_DIR, client.TOKEN_PATH, client.MARKER_PATH, client._http = self._orig
+        runtime.STATE_DIR, runtime.TOKEN_PATH, runtime.MARKER_PATH, runtime._http = self._orig
         self._tmp.cleanup()
 
     def _sign_in(self, scope):
@@ -157,7 +158,7 @@ class TokenCacheTest(StatePathMixin):
     def test_round_trip_and_permissions(self):
         client.save_token({"access_token": "x", "scope": "Mail.Read", "expires_at": 0})
         self.assertEqual(client.load_token()["access_token"], "x")
-        mode = client.TOKEN_PATH.stat().st_mode & 0o777
+        mode = runtime.TOKEN_PATH.stat().st_mode & 0o777
         self.assertEqual(mode, 0o600, "token cache must be written 0600")
 
     def test_require_scopes_rejects_read_only_for_write(self):
@@ -190,7 +191,7 @@ class MailReadTest(StatePathMixin):
             ]
         }
         rec = _HttpRecorder(lambda method, url, **kw: payload)
-        client._http = rec
+        runtime._http = rec
         out = self._capture(client.cmd_mail_list, _Args(limit=10, format="concise"))
         self.assertIn("Hello", out)
         self.assertIn("a@x.com", out)
@@ -207,7 +208,7 @@ class MailReadTest(StatePathMixin):
             "receivedDateTime": "2026-06-01T00:00:00Z",
             "internetMessageHeaders": [{"name": "List-Unsubscribe", "value": "<mailto:x>"}],
         }
-        client._http = _HttpRecorder(lambda method, url, **kw: msg)
+        runtime._http = _HttpRecorder(lambda method, url, **kw: msg)
         out = self._capture(client.cmd_mail_get, _Args(message_id="m1", format="concise"))
         self.assertIn("List-Unsubscribe", out)
 
@@ -261,7 +262,7 @@ class CatchSetTest(StatePathMixin):
         import io
 
         rec = _HttpRecorder(lambda method, url, **kw: {"value": self.MESSAGES})
-        client._http = rec
+        runtime._http = rec
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(
                 client.cmd_rule_verify(_Args(header_contains=["List-Unsubscribe"], format="concise")), 0
@@ -369,7 +370,7 @@ class RuleListTest(StatePathMixin):
                         return {"value": value}
             return {"value": []}
 
-        client._http = _HttpRecorder(responder)
+        runtime._http = _HttpRecorder(responder)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.assertEqual(client.cmd_rule_list(_Args(format="concise")), 0)
@@ -387,7 +388,7 @@ class RuleCreateTest(StatePathMixin):
 
     def test_refuses_without_prior_verify(self):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # write scope, but no marker
-        client._http = _HttpRecorder()
+        runtime._http = _HttpRecorder()
         with self.assertRaises(client.SteerError):
             client.cmd_rule_create(_Args(name="N", header_contains=["Never-Verified"], move_to_folder="F"))
 
@@ -406,7 +407,7 @@ class RuleCreateTest(StatePathMixin):
         import io
 
         rec = _HttpRecorder(responder)
-        client._http = rec
+        runtime._http = rec
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(
                 client.cmd_rule_create(
@@ -434,7 +435,7 @@ class RuleRemoveTest(StatePathMixin):
     def test_issues_exactly_one_delete_on_the_rule(self):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
         rec = _HttpRecorder()
-        client._http = rec
+        runtime._http = rec
         import contextlib
         import io
 
@@ -464,7 +465,7 @@ class CategoryTest(StatePathMixin):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
         cats = {"value": [{"id": "c1", "displayName": "Needs attention", "color": "preset9"}]}
         rec = _HttpRecorder(lambda method, url, **kw: cats)
-        client._http = rec
+        runtime._http = rec
         out = self._capture(client.cmd_category_list, _Args(format="concise"))
         self.assertIn("Needs attention", out)
         self.assertIn("preset9", out)
@@ -483,7 +484,7 @@ class CategoryTest(StatePathMixin):
             return {"id": "c-new", "displayName": "Needs attention", "color": "preset9"}
 
         rec = _HttpRecorder(responder)
-        client._http = rec
+        runtime._http = rec
         self._capture(client.cmd_category_ensure, _Args(name="Needs attention", color="preset9"))
         post = next((c for c in rec.calls if c[0] == "POST"), None)
         self.assertIsNotNone(post, "absent category must be POSTed")
@@ -494,7 +495,7 @@ class CategoryTest(StatePathMixin):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
         cats = {"value": [{"id": "c1", "displayName": "needs ATTENTION", "color": "preset5"}]}
         rec = _HttpRecorder(lambda method, url, **kw: cats)
-        client._http = rec
+        runtime._http = rec
         out = self._capture(client.cmd_category_ensure, _Args(name="Needs attention", color="preset9"))
         self.assertIn("already exists", out)
         self.assertNotIn("POST", rec.methods())  # case-insensitive match → no create
@@ -518,7 +519,7 @@ class CategoryTest(StatePathMixin):
             return {}
 
         rec = _HttpRecorder(responder)
-        client._http = rec
+        runtime._http = rec
         self._capture(
             client.cmd_rule_create,
             _Args(
@@ -550,7 +551,7 @@ class CategoryTest(StatePathMixin):
             return {}
 
         rec = _HttpRecorder(responder)
-        client._http = rec
+        runtime._http = rec
         self._capture(
             client.cmd_rule_create,
             _Args(
@@ -568,7 +569,7 @@ class CategoryTest(StatePathMixin):
     def test_rule_create_refuses_when_no_action(self):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
         client.record_verification(["X"], 1)
-        client._http = _HttpRecorder()
+        runtime._http = _HttpRecorder()
         with self.assertRaises(client.SteerError):
             client.cmd_rule_create(
                 _Args(name="N", header_contains=["X"], move_to_folder=None, assign_category=None)
@@ -576,7 +577,7 @@ class CategoryTest(StatePathMixin):
 
     def test_rule_create_category_still_requires_verify(self):
         self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")  # write scope, no marker
-        client._http = _HttpRecorder()
+        runtime._http = _HttpRecorder()
         with self.assertRaises(client.SteerError):
             client.cmd_rule_create(
                 _Args(name="N", header_contains=["Unverified"], move_to_folder=None, assign_category=["Lbl"])
@@ -626,7 +627,7 @@ class SearchFolderTest(StatePathMixin):
 
     def test_create_refuses_without_filter(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
-        client._http = _HttpRecorder()
+        runtime._http = _HttpRecorder()
         with self.assertRaises(client.SteerError):
             client.cmd_searchfolder_create(
                 _Args(name="N", category=None, filter_query=None, source_folders=None, include_nested=True)
@@ -635,7 +636,7 @@ class SearchFolderTest(StatePathMixin):
     def test_create_shapes_body_with_odata_type(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
         rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf-new"})
-        client._http = rec
+        runtime._http = rec
         self._capture(
             client.cmd_searchfolder_create,
             _Args(
@@ -657,7 +658,7 @@ class SearchFolderTest(StatePathMixin):
     def test_create_explicit_filter_overrides_category(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
         rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf"})
-        client._http = rec
+        runtime._http = rec
         self._capture(
             client.cmd_searchfolder_create,
             _Args(
@@ -687,7 +688,7 @@ class SearchFolderTest(StatePathMixin):
             ]
         }
         rec = _HttpRecorder(lambda method, url, **kw: payload)
-        client._http = rec
+        runtime._http = rec
         out = self._capture(client.cmd_searchfolder_list, _Args(format="concise"))
         self.assertIn("Needs attention", out)
         self.assertIn("sf1", out)
@@ -696,7 +697,7 @@ class SearchFolderTest(StatePathMixin):
     def test_remove_issues_one_delete_on_the_folder_not_mail(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
         rec = _HttpRecorder()
-        client._http = rec
+        runtime._http = rec
         self._capture(client.cmd_searchfolder_remove, _Args(folder_id="sf1"))
         self.assertEqual(rec.methods(), ["DELETE"])
         url = rec.calls[0][1]
@@ -738,7 +739,7 @@ class MessageMoveTest(StatePathMixin):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
         msg = {"id": "m1", "subject": "Hello", "from": {"emailAddress": {"address": "a@b.c"}}}
         rec = _HttpRecorder(lambda method, url, **kw: msg)
-        client._http = rec
+        runtime._http = rec
         out = self._capture(
             client.cmd_message_move,
             _Args(message_ids=["m1"], destination_folder="archive", dry_run=True, format="concise"),
@@ -751,7 +752,7 @@ class MessageMoveTest(StatePathMixin):
     def test_move_posts_move_op_never_delete(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
         rec = _HttpRecorder(lambda method, url, **kw: {"id": "new-m1"})
-        client._http = rec
+        runtime._http = rec
         out = self._capture(
             client.cmd_message_move,
             _Args(message_ids=["m1"], destination_folder="archive", dry_run=False, format="concise"),
@@ -772,7 +773,7 @@ class MessageMoveTest(StatePathMixin):
                 raise client.SteerError("Graph request failed (404)")
             return {"id": "new"}
 
-        client._http = _HttpRecorder(responder)
+        runtime._http = _HttpRecorder(responder)
         out = self._capture(
             client.cmd_message_move,
             _Args(message_ids=["ok", "bad"], destination_folder="archive", dry_run=False, format="concise"),
@@ -844,7 +845,7 @@ class FolderListTest(StatePathMixin):
     def test_concise_renders_nested_tree_with_counts(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
         rec = _HttpRecorder(self._tree_responder())
-        client._http = rec
+        runtime._http = rec
         out = self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
         self.assertIn('"Inbox"', out)
         self.assertIn("1280 total, 37 unread", out)
@@ -853,7 +854,7 @@ class FolderListTest(StatePathMixin):
 
     def test_excludes_virtual_search_folders_node(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
-        client._http = _HttpRecorder(self._tree_responder())
+        runtime._http = _HttpRecorder(self._tree_responder())
         out = self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
         self.assertNotIn("Search Folders", out)
         # Inbox, Archive, Receipts — three real folders, search-folder node dropped.
@@ -861,7 +862,7 @@ class FolderListTest(StatePathMixin):
 
     def test_detailed_emits_ids_and_parent(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
-        client._http = _HttpRecorder(self._tree_responder())
+        runtime._http = _HttpRecorder(self._tree_responder())
         out = self._capture(client.cmd_folder_list, _Args(format="detailed", include_hidden=False))
         data = json.loads(out)
         self.assertEqual(data[0]["id"], "inbox")
@@ -871,7 +872,7 @@ class FolderListTest(StatePathMixin):
     def test_read_scope_only(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
         rec = _HttpRecorder(self._tree_responder())
-        client._http = rec
+        runtime._http = rec
         self._capture(client.cmd_folder_list, _Args(format="concise", include_hidden=False))
         self.assertEqual(set(rec.methods()), {"GET"})  # never a write
 
