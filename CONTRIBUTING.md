@@ -31,7 +31,7 @@ ruff check . && ruff format --check .
 python3 -m pytest -q
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly these; green CI is part of the Definition of Done.
+CI (`.github/workflows/ci.yml`) runs exactly these; keep CI green before opening a PR.
 
 ## Cutting a release
 

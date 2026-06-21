@@ -81,7 +81,7 @@ plugin/src/msgraph/                      # stdlib kernel package (importable + r
   catalog.py render.py graph.py verbs.py #   TOOLS catalog · output shaping · Graph helpers · verbs
 docs/AGENT-FRIENDLY.md                   # REQUIRED READING before adding/changing a skill
 pyproject.toml  tests/  .github/         # dev tooling, tests, CI/release (never shipped)
-DEFINITION_OF_DONE.md                    # what "working" means — the build target
+CHANGELOG.md                             # release history — what's shipped, per version
 CLAUDE.md                                # grounding + build plan for a Claude Code session in this repo
 ```
 
@@ -133,11 +133,11 @@ grep -rnE '^\s*(import|from)\s+(msal|azure|requests|urllib3|httpx|aiohttp|pydant
 
 ## Status
 
-Built spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`). As of **v0.3.0**:
+Built spec-first (`/speckit-specify` → `clarify` → `plan` → `tasks` → `implement`). As of **v0.4.0**:
 the 14 verbs above (+ `describe`) across the four-tier scope ratchet, the runtime `describe` catalog,
 and offline unit tests (Graph HTTP boundary mocked) — all behind a layered `msgraph` package (thin
 `client.py` entrypoint over `runtime`/`catalog`/`render`/`graph`/`verbs`). Live auth/Graph behaviour
-requires the one-time Azure app registration above. See `DEFINITION_OF_DONE.md` for the target and
+requires the one-time Azure app registration above. See `CHANGELOG.md` for the release history and
 `CLAUDE.md` for the build plan.
 
 ## License
