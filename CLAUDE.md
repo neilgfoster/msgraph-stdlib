@@ -3,7 +3,8 @@
 Grounding **and the build plan** for any Claude Code session working in this repository. This repo was
 scaffolded from `neilgfoster/claude-plugin-template`. It is a standalone, public, MIT plugin — it has
 **no dependency on, and needs no knowledge of, any private consumer.** Everything required to build it
-to "done" is in this repo. The target is `DEFINITION_OF_DONE.md`; read it first.
+is in this repo. The plugin has shipped (v0.4.0) — all 14 verbs (+ `describe`) are live and the suite
+is green; `describe` and `CHANGELOG.md` are the live source of truth for what's built.
 
 ## What this plugin is
 
@@ -92,13 +93,13 @@ or advertise it.
 3. `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`.
 4. Replace `plugin/src/example/` → `plugin/src/msgraph/` (update `APP`); replace the example skill
    with the real ones; make `python3 -m msgraph.client describe` emit the `TOOLS` catalog.
-5. Validate against `DEFINITION_OF_DONE.md`. Open a PR for review.
+5. Validate against the safety model and CI (stdlib-only guard, offline suite green). Open a PR for review.
 
 ## Where things are
 
 | Path | Purpose |
 |---|---|
-| `DEFINITION_OF_DONE.md` | **The build target** — read first |
+| `CHANGELOG.md` | **What's shipped** — the release history (single source of truth alongside `describe`) |
 | `.claude-plugin/marketplace.json` | Marketplace entry — plugin `source` points at `./plugin` |
 | `plugin/.claude-plugin/plugin.json` | Plugin manifest (lives inside the shippable payload) |
 | `plugin/skills/<subject>-<verb>/SKILL.md` | Agent-facing commands |
@@ -113,7 +114,7 @@ reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plug
 <!-- SPECKIT START -->
 Active feature plan: `specs/005-docs-refresh/plan.md` (documentation-only refresh to match shipped
 0.3.0 — add `message-move` + the `--mode messages` tier across the docs, describe the layered package,
-and HONESTLY reconcile `DEFINITION_OF_DONE.md`'s "No imperative per-message mutation" constraint to its
+and HONESTLY reconcile the docs' "No imperative per-message mutation" constraint to its
 true narrower guarantee: move-only, never-delete, reversible, separately consented; no code change,
 suite stays green; research/data-model/contracts/doc-claims.md/quickstart alongside it). Prior feature
 plans: `specs/004-split-client-module/plan.md` (pure structural refactor — split the ~1519-line

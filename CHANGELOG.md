@@ -15,6 +15,16 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.4.0] - 2026-06-21
+
+### Removed
+
+- **`DEFINITION_OF_DONE.md`** and all references to it. The build target it described has been met —
+  the plugin has shipped with all 14 verbs (+ `describe`), a green offline suite, and the full safety
+  model in place. Going forward, `CHANGELOG.md` (release history) and the runtime `describe` catalog
+  are the source of truth for what's built; `CLAUDE.md`, `README.md`, and `CONTRIBUTING.md` no longer
+  point at the retired document.
+
 ## [0.3.0] - 2026-06-21
 
 ### Added
