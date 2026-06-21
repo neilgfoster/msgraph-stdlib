@@ -15,6 +15,28 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.3.0] - 2026-06-21
+
+### Added
+
+- **Per-message move** — `message-move` relocates one or more messages to a destination folder
+  (`POST /me/messages/{id}/move`). MOVE only — it never deletes, and no delete-capable scope is ever
+  requested, so deletion stays structurally impossible; a move is reversible (move it back). Batched
+  over `--message_ids` with a per-message outcome (one stale id never aborts the rest), and a
+  `--dry_run` preview that resolves the destination and lists what *would* move while writing nothing.
+  Behind a new, separately-consented `Mail.ReadWrite` tier via `auth-login --mode messages` — distinct
+  from the read, rule-authoring, and search-folder tiers. Re-files backlog mail that incoming-only
+  rules cannot touch.
+
+### Changed
+
+- **Kernel restructured into a layered package** (no behavioural change, identical CLI/discovery
+  contract). The single ~1519-line `plugin/src/msgraph/client.py` is split into `runtime.py` (the HTTP
+  seam, token cache, markers + catch-set, Graph primitives), `catalog.py` (the `TOOLS` catalog),
+  `render.py`, `graph.py`, `verbs.py`, and a thin `client.py` entrypoint — a one-way dependency graph
+  that is far easier to read and extend. Both `python3 -m msgraph.client …` and the file-path form
+  still work and emit the identical 15-verb catalog.
+
 ## [0.2.0] - 2026-06-20
 
 ### Added
