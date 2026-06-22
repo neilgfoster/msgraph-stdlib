@@ -37,6 +37,16 @@ def cmd_auth_login(args) -> int:
             "MSGRAPH_CLIENT_ID is not set. Register a free Azure AD public client (device-code "
             "flow enabled), then export MSGRAPH_CLIENT_ID and MSGRAPH_TENANT_ID. See skills/auth-login."
         )
+    tok = runtime.load_token()
+    if tok and tok.get("expires_at", 0) > time.time() + 60:
+        needed = set(runtime.SCOPES[args.mode].split())
+        if not (needed - runtime._scopes_of(tok)):
+            mode_note = {
+                "rules": "rule-authoring (write)",
+                "folders": "search-folder (mail write)",
+            }.get(args.mode, "read-only")
+            print(f"Already signed in ({mode_note}). Scopes: {tok.get('scope') or runtime.SCOPES[args.mode]}")
+            return 0
     scope = runtime.SCOPES[args.mode]
     dc = runtime._http(
         "POST",

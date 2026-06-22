@@ -15,6 +15,18 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.4.1] - 2026-06-22
+
+### Fixed
+
+- **`auth-login` idempotency** — `cmd_auth_login` now checks the cached token before initiating a
+  new device-code flow. If the token is present, non-expired, and covers all scopes required by the
+  requested mode, it returns immediately with `"Already signed in (<mode>). Scopes: …"` and exits 0
+  without making any HTTP requests or opening a browser. Falls through to the full flow only when
+  the token is absent, expired, or insufficient for the requested mode (e.g. a read token asked to
+  escalate to `--mode rules`). Fixes repeated browser-consent prompts during multi-step triage
+  sessions. Four unit tests added covering each fall-through boundary.
+
 ## [0.4.0] - 2026-06-21
 
 ### Removed
