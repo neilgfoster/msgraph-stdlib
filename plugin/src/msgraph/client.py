@@ -130,6 +130,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     for verb in ("mail-list",):
         sub.choices[verb].add_argument("--limit", type=int, default=25, help="max items (pagination)")
+        sub.choices[verb].add_argument(
+            "--folder",
+            default="inbox",
+            help="folder to list: well-known name or display name (default: inbox)",
+        )
     for verb in (
         "mail-list",
         "mail-get",

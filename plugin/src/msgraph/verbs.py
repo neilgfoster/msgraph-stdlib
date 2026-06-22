@@ -91,14 +91,29 @@ def cmd_auth_login(args) -> int:
 
 
 def cmd_mail_list(args) -> int:
-    """List recent inbox messages (GET /me/messages), shaped concise/detailed (FR-005)."""
+    """List recent messages from a single folder, shaped concise/detailed (FR-005).
+
+    Defaults to the Inbox (GET /me/mailFolders/inbox/messages) so the listing reflects what actually
+    needs triage, not already-filed mail across every folder. An optional --folder (well-known name
+    or display name) scopes the listing elsewhere; an unresolvable folder steers rather than 404s.
+    """
     tok = runtime._authed_token("Mail.Read")
+    token = tok["access_token"]
+    folder = getattr(args, "folder", None) or "inbox"
+    folder_id, label = graph._resolve_folder(token, folder)
     sel = "id,subject,from,receivedDateTime"
-    data = runtime._graph_get(
-        tok["access_token"],
-        "/me/messages",
-        params={"$top": args.limit, "$select": sel, "$orderby": "receivedDateTime desc"},
-    )
+    fid = urllib.parse.quote(folder_id, safe="")
+    try:
+        data = runtime._graph_get(
+            token,
+            f"/me/mailFolders/{fid}/messages",
+            params={"$top": args.limit, "$select": sel, "$orderby": "receivedDateTime desc"},
+        )
+    except runtime.SteerError as e:
+        raise runtime.SteerError(
+            f'Could not list folder "{label}": {e} '
+            "Check the folder name (run folder-list to see available folders)."
+        )
     print(render._render_messages(data.get("value", []), args.format))
     return 0
 
@@ -142,7 +157,7 @@ def cmd_message_move(args) -> int:
     tok = runtime._authed_token(runtime.MESSAGE_WRITE_SCOPE)
     token = tok["access_token"]
     ids = list(dict.fromkeys(args.message_ids))  # de-dupe, preserve order
-    dest_id, dest_label = graph._resolve_destination_folder(token, args.destination_folder)
+    dest_id, dest_label = graph._resolve_folder(token, args.destination_folder)
 
     if args.dry_run:
         previews = [{"id": mid, **_message_summary(token, mid)} for mid in ids]
@@ -182,11 +197,15 @@ def cmd_message_move(args) -> int:
 
 
 def _fetch_messages_with_headers(token: str, limit: int = 100) -> list:
-    """Read messages + their internet headers for catch-set evaluation (read-only, GETs only)."""
+    """Read inbox messages + their internet headers for catch-set evaluation (read-only, GETs only).
+
+    Inbox-scoped: native message rules act on inbox arrivals, so the catch-set must count only the
+    mail that currently sits in the Inbox — not matches already filed away in other folders.
+    """
     sel = "id,subject,from,receivedDateTime,internetMessageHeaders"
     data = runtime._graph_get(
         token,
-        "/me/messages",
+        "/me/mailFolders/inbox/messages",
         params={"$top": limit, "$select": sel, "$orderby": "receivedDateTime desc"},
     )
     return data.get("value", [])

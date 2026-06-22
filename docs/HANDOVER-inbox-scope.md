@@ -1,5 +1,9 @@
 # Handover: `rule-verify` and `mail-list` search all folders, not inbox-only
 
+**Status:** RESOLVED 2026-06-22 — feature `006-inbox-scope` (see `specs/006-inbox-scope/`, CHANGELOG
+[Unreleased]). Both verbs now read `GET /me/mailFolders/inbox/messages`; `mail-list` gained an
+optional `--folder` flag; `rule-verify` is always inbox-only.
+
 **Raised:** 2026-06-22  
 **Repo context:** kypr `/kypr-triage` session surfaced this during live use.
 

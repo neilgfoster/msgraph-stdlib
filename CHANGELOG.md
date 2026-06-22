@@ -15,6 +15,23 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.5.0] - 2026-06-22
+
+### Fixed
+
+- **Inbox-scoped reads** — `mail-list` and `rule-verify` previously queried `GET /me/messages`, which
+  returns messages across **all** mail folders, so the triage overview mixed already-filed mail with
+  true inbox stragglers and the rule catch-set counted matches no longer in the inbox (false
+  confidence in a rule's value). Both now read the Inbox via `GET /me/mailFolders/inbox/messages`.
+  `rule-verify` is always inbox-only (rules act on inbox arrivals; no flag). No new OAuth scope —
+  stays `Mail.Read`. Source: `docs/HANDOVER-inbox-scope.md` (feature `006-inbox-scope`).
+
+### Added
+
+- **`mail-list --folder <well-known-or-name>`** — optional flag to list a folder other than the
+  Inbox (default `inbox`), reusing the existing folder resolver; an unresolvable folder steers
+  rather than returning a raw 404.
+
 ## [0.4.1] - 2026-06-22
 
 ### Fixed
