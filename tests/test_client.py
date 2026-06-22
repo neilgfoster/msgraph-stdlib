@@ -185,15 +185,17 @@ class AuthLoginIdempotencyTest(StatePathMixin):
         super().setUp()
         os.environ["MSGRAPH_CLIENT_ID"] = "test-client-id"
         self._rec = _HttpRecorder(
-            lambda method, url, **kw: {
-                "device_code": "dc",
-                "user_code": "USER",
-                "verification_uri": "https://example.com",
-                "interval": 1,
-                "expires_in": 1,  # timeout immediately → SteerError in ~1 s
-            }
-            if "devicecode" in url
-            else {}
+            lambda method, url, **kw: (
+                {
+                    "device_code": "dc",
+                    "user_code": "USER",
+                    "verification_uri": "https://example.com",
+                    "interval": 1,
+                    "expires_in": 1,  # timeout immediately → SteerError in ~1 s
+                }
+                if "devicecode" in url
+                else {}
+            )
         )
         runtime._http = self._rec
 
@@ -222,11 +224,13 @@ class AuthLoginIdempotencyTest(StatePathMixin):
         self.assertTrue(any("devicecode" in url for _, url, _, _ in self._rec.calls))
 
     def test_expired_token_falls_through_to_device_code(self):
-        client.save_token({
-            "access_token": "old",
-            "scope": "Mail.Read MailboxSettings.Read offline_access",
-            "expires_at": 1,  # far past
-        })
+        client.save_token(
+            {
+                "access_token": "old",
+                "scope": "Mail.Read MailboxSettings.Read offline_access",
+                "expires_at": 1,  # far past
+            }
+        )
         with self.assertRaises(runtime.SteerError):
             client.cmd_auth_login(_Args(mode="read"))
         self.assertTrue(any("devicecode" in url for _, url, _, _ in self._rec.calls))
