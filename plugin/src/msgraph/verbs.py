@@ -113,7 +113,7 @@ def cmd_mail_list(args) -> int:
         raise runtime.SteerError(
             f'Could not list folder "{label}": {e} '
             "Check the folder name (run folder-list to see available folders)."
-        )
+        ) from e
     print(render._render_messages(data.get("value", []), args.format))
     return 0
 
