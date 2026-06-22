@@ -254,12 +254,41 @@ class MailReadTest(StatePathMixin):
         }
         rec = _HttpRecorder(lambda method, url, **kw: payload)
         runtime._http = rec
-        out = self._capture(client.cmd_mail_list, _Args(limit=10, format="concise"))
+        out = self._capture(client.cmd_mail_list, _Args(limit=10, format="concise", folder="inbox"))
         self.assertIn("Hello", out)
         self.assertIn("a@x.com", out)
         # only a read (GET) endpoint is reached
         self.assertEqual(rec.methods(), ["GET"])
         self.assertIn("$top=10", rec.calls[0][1])
+
+    def test_mail_list_defaults_to_inbox_scope(self):
+        # No-args (folder omitted) must read the inbox-scoped path, not all-folders /me/messages.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(lambda method, url, **kw: {"value": []})
+        runtime._http = rec
+        self._capture(client.cmd_mail_list, _Args(limit=5, format="concise"))
+        url = rec.calls[0][1]
+        self.assertIn("/me/mailFolders/inbox/messages", url)
+        self.assertNotIn("/me/messages?", url)
+
+    def test_mail_list_folder_scopes_to_named_folder(self):
+        # A well-known folder name is used verbatim in the path.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        rec = _HttpRecorder(lambda method, url, **kw: {"value": []})
+        runtime._http = rec
+        self._capture(client.cmd_mail_list, _Args(limit=5, format="concise", folder="archive"))
+        self.assertIn("/me/mailFolders/archive/messages", rec.calls[0][1])
+
+    def test_mail_list_unresolvable_folder_steers(self):
+        # An opaque/unknown folder that Graph rejects surfaces a steering error, not a raw 404.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+
+        def _boom(method, url, **kw):
+            raise client.SteerError("Graph 404: folder not found")
+
+        runtime._http = _HttpRecorder(_boom)
+        with self.assertRaises(client.SteerError):
+            self._capture(client.cmd_mail_list, _Args(limit=5, format="concise", folder="Nope"))
 
     def test_mail_get_surfaces_headers(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
@@ -333,6 +362,8 @@ class CatchSetTest(StatePathMixin):
         self.assertTrue(client.read_verification(["List-Unsubscribe"]))
         # verify performs no writes — only GETs against Graph
         self.assertEqual(set(rec.methods()), {"GET"})
+        # catch-set is computed over the Inbox only (rules act on inbox arrivals), not all folders
+        self.assertIn("/me/mailFolders/inbox/messages", rec.calls[0][1])
 
 
 # ================================================================================================

@@ -76,8 +76,10 @@ TOOLS = [
     {
         "name": "mail-list",
         "description": (
-            "List recent inbox messages, agent-legibly. Use for triage/overview. concise (default) "
-            "returns readable summaries; detailed adds IDs for follow-up calls. Requires read sign-in."
+            "List recent messages from a single folder, agent-legibly. Defaults to the Inbox — what "
+            "actually needs triage, not already-filed mail across every folder. Use for "
+            "triage/overview; pass folder to inspect another folder. concise (default) returns "
+            "readable summaries; detailed adds IDs for follow-up calls. Requires read sign-in."
         ),
         "annotations": {
             "readOnlyHint": True,
@@ -98,6 +100,14 @@ TOOLS = [
                     "enum": ["concise", "detailed"],
                     "default": "concise",
                     "description": "concise = agent-legible summary; detailed = adds IDs.",
+                },
+                "folder": {
+                    "type": "string",
+                    "default": "inbox",
+                    "description": (
+                        "Folder to list: well-known name (e.g. inbox, archive) or display name. "
+                        "Defaults to inbox."
+                    ),
                 },
             },
             "required": [],

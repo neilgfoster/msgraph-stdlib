@@ -43,12 +43,14 @@ _WELL_KNOWN_FOLDERS = {
 }
 
 
-def _resolve_destination_folder(token: str, dest: str) -> tuple[str, str]:
-    """Resolve a move destination to (folder_id, label) — never a delete target (MOVE only).
+def _resolve_folder(token: str, dest: str) -> tuple[str, str]:
+    """Resolve a folder reference to (folder_id, label). General-purpose: used for reads
+    (mail-list --folder) and as a move destination (message-move) alike — it never names a
+    delete target.
 
     Accepts a well-known folder name (used verbatim), a display name (resolved to its id, at any
     nesting depth, via the folder name map), or an opaque folder id (used verbatim when no name
-    matches). Read-only resolution; the caller performs the actual move.
+    matches). Read-only resolution; the caller decides what to do with the resolved folder.
     """
     if dest.casefold() in _WELL_KNOWN_FOLDERS:
         return dest.casefold(), dest.casefold()
@@ -56,7 +58,7 @@ def _resolve_destination_folder(token: str, dest: str) -> tuple[str, str]:
     for fid, fname in _folder_name_map(token).items():
         if fname.casefold() == dest.casefold():
             return fid, fname
-    # No name match — treat the value as an opaque id and let Graph validate it per message.
+    # No name match — treat the value as an opaque id and let Graph validate it per request.
     return dest, dest
 
 

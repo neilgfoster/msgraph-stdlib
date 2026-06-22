@@ -112,7 +112,12 @@ or advertise it.
 reference bundled files via `${CLAUDE_PLUGIN_ROOT}/...` — it resolves to `plugin/`.
 
 <!-- SPECKIT START -->
-Active feature plan: `specs/005-docs-refresh/plan.md` (documentation-only refresh to match shipped
+Active feature plan: `specs/006-inbox-scope/plan.md` (re-scope `mail-list` and `rule-verify` reads
+from all-folders `GET /me/messages` to the Inbox via `GET /me/mailFolders/inbox/messages`; add an
+optional `mail-list --folder <well-known-or-name>` flag reusing the `graph.py` folder resolver;
+`rule-verify` is always inbox-only; no new OAuth scope — stays `Mail.Read`; tests re-point the mocked
+read URL and add inbox-scope coverage; source `docs/HANDOVER-inbox-scope.md`). Prior feature plan:
+`specs/005-docs-refresh/plan.md` (documentation-only refresh to match shipped
 0.3.0 — add `message-move` + the `--mode messages` tier across the docs, describe the layered package,
 and HONESTLY reconcile the docs' "No imperative per-message mutation" constraint to its
 true narrower guarantee: move-only, never-delete, reversible, separately consented; no code change,

@@ -13,10 +13,12 @@ annotations:
 
 ## What this does
 
-Fetches recent messages **with their internet headers** read-only and applies the same coarse
-case-insensitive substring matching Outlook's `headerContains` predicate uses, returning the exact
-set of messages (and a count) the proposed rule would match right now. It performs **only GETs** —
-nothing is written to the mailbox (SC-002).
+Fetches recent **Inbox** messages **with their internet headers** read-only and applies the same
+coarse case-insensitive substring matching Outlook's `headerContains` predicate uses, returning the
+exact set of messages (and a count) the proposed rule would match right now. The catch-set is
+**inbox-only by design** — native message rules act on inbox arrivals, so the count reflects mail
+currently in the Inbox, not matches already filed away in other folders (there is no flag to broaden
+it). It performs **only GETs** — nothing is written to the mailbox (SC-002).
 
 It also records a small **verification marker** (a hash of the normalised predicate set) next to the
 token cache. `rule-create` checks for that marker and **refuses** to install a rule whose criteria
