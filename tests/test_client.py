@@ -9,7 +9,10 @@ verify-then-install gate that make the safety model structural.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -172,6 +175,61 @@ class TokenCacheTest(StatePathMixin):
     def test_require_scopes_not_signed_in(self):
         with self.assertRaises(client.SteerError):
             client._require_scopes({}, "Mail.Read")
+
+
+# ================================================================================================
+# T011 — auth-login idempotency (no re-auth when valid cached token already covers the mode)
+# ================================================================================================
+class AuthLoginIdempotencyTest(StatePathMixin):
+    def setUp(self):
+        super().setUp()
+        os.environ["MSGRAPH_CLIENT_ID"] = "test-client-id"
+        self._rec = _HttpRecorder(
+            lambda method, url, **kw: {
+                "device_code": "dc",
+                "user_code": "USER",
+                "verification_uri": "https://example.com",
+                "interval": 1,
+                "expires_in": 1,  # timeout immediately → SteerError in ~1 s
+            }
+            if "devicecode" in url
+            else {}
+        )
+        runtime._http = self._rec
+
+    def tearDown(self):
+        os.environ.pop("MSGRAPH_CLIENT_ID", None)
+        super().tearDown()
+
+    def test_valid_token_same_mode_returns_0_no_http(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = client.cmd_auth_login(_Args(mode="read"))
+        self.assertEqual(result, 0)
+        self.assertIn("Already signed in", out.getvalue())
+        self.assertEqual(len(self._rec.calls), 0)
+
+    def test_token_insufficient_mode_falls_through_to_device_code(self):
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        with self.assertRaises(runtime.SteerError):  # times out in ~1 s
+            client.cmd_auth_login(_Args(mode="rules"))
+        self.assertTrue(any("devicecode" in url for _, url, _, _ in self._rec.calls))
+
+    def test_no_token_file_falls_through_to_device_code(self):
+        with self.assertRaises(runtime.SteerError):
+            client.cmd_auth_login(_Args(mode="read"))
+        self.assertTrue(any("devicecode" in url for _, url, _, _ in self._rec.calls))
+
+    def test_expired_token_falls_through_to_device_code(self):
+        client.save_token({
+            "access_token": "old",
+            "scope": "Mail.Read MailboxSettings.Read offline_access",
+            "expires_at": 1,  # far past
+        })
+        with self.assertRaises(runtime.SteerError):
+            client.cmd_auth_login(_Args(mode="read"))
+        self.assertTrue(any("devicecode" in url for _, url, _, _ in self._rec.calls))
 
 
 # ================================================================================================
