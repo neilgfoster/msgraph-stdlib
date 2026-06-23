@@ -23,6 +23,34 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
   searched, so a folder nested under Inbox (e.g. `Inbox/Newsletters`) failed with "No mail
   folder named '<name>' was found". A genuinely non-existent name still raises the steering
   error. No scope change.
+- **Dual-stack connect hang (auth + silent refresh)** — every HTTP call went through a bare
+  `urllib.request.urlopen`, which on a host with a blackholed IPv6 route tried the dead address
+  with the full operation timeout and hung indefinitely (no device code, reads never return, and
+  the silent refresh hung too — the likely cause of "re-auth every session"). `runtime._http` now
+  connects via a bounded, **IPv4-first** path (happy-eyeballs-lite over `socket`/`http.client`):
+  each address is tried with a short connect timeout (`MSGRAPH_CONNECT_TIMEOUT`, default 5s) so a
+  dead address fails fast to a reachable one. `MSGRAPH_FORCE_IPV4=1` restricts to IPv4. Stdlib
+  only; the 30s read timeout and the single `_http` seam are unchanged.
+- **Silent refresh is now observable** — a successful token renewal prints
+  `msgraph: renewed access token silently` to stderr, so occasional users can see refresh working
+  rather than assuming the session expired.
+
+### Added
+
+- **Scope-superset warning at sign-in** — Microsoft consent is sticky/cumulative, so a `--mode read`
+  sign-in on an account that previously consented to a write tier returns a write-capable token.
+  `auth-login` now warns on stderr when the granted scopes are a write-capable superset of the
+  requested mode, so the read-mode token's true capability is never hidden.
+
+### Changed
+
+- **Honest scope-model documentation** — added `docs/adr/0001-scope-isolation-one-app-vs-per-tier.md`
+  recording the decision to keep one app registration and frame `--mode` as consent-shaping +
+  guardrail (rejecting per-tier app registrations). Reconciled the `auth-login` skill doc and README:
+  the unqualified "structurally cannot write" claim is replaced with the true, qualified guarantee
+  (structural read-only holds only before any write mode has ever been consented). Source:
+  `docs/HANDOVER-runtime-and-scope.md` (feature `008-runtime-and-scope`; the two-phase agent sign-in,
+  Issue 4, is deferred).
 
 ## [0.5.0] - 2026-06-22
 

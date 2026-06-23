@@ -17,6 +17,24 @@ from msgraph.catalog import TOOLS
 # ================================================================================================
 # Verb implementations
 # ================================================================================================
+def _warn_scope_superset(requested: str, granted: str) -> None:
+    """Warn (stderr) when the granted token carries write scopes beyond the requested mode.
+
+    AAD consent is sticky/cumulative, so a read-mode sign-in on an account that ever consented to a
+    write tier returns a write-capable token. Surfacing this keeps the docs' honesty promise: the
+    "structural read-only" guarantee does NOT hold for such a token (feature 008, Issue 3 / ADR-0001).
+    """
+    extra = runtime._extra_write_scopes(requested, granted)
+    if extra:
+        print(
+            "msgraph: note — this token also carries WRITE scope(s) from prior consent: "
+            f"{' '.join(sorted(extra))}. Microsoft consent is cumulative, so structural read-only "
+            "no longer holds for this account+client. Verbs still refuse without the scope they need, "
+            "but the token itself is write-capable.",
+            file=sys.stderr,
+        )
+
+
 def cmd_describe(args) -> int:
     """Emit the tool catalog as JSON so an agent can discover verbs, descriptions, and schemas."""
     if args.name:
@@ -46,6 +64,7 @@ def cmd_auth_login(args) -> int:
                 "folders": "search-folder (mail write)",
             }.get(args.mode, "read-only")
             print(f"Already signed in ({mode_note}). Scopes: {tok.get('scope') or runtime.SCOPES[args.mode]}")
+            _warn_scope_superset(runtime.SCOPES[args.mode], tok.get("scope", ""))
             return 0
     scope = runtime.SCOPES[args.mode]
     dc = runtime._http(
@@ -84,6 +103,7 @@ def cmd_auth_login(args) -> int:
                 "folders": "search-folder (mail write)",
             }.get(args.mode, "read-only")
             print(f"Signed in ({mode_note}). Scopes: {resp.get('scope') or scope}")
+            _warn_scope_superset(scope, resp.get("scope") or scope)
             return 0
     raise runtime.SteerError(
         "Device-code sign-in timed out before authorisation. Run /msgraph-auth-login again."
