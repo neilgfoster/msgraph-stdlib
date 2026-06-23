@@ -1145,7 +1145,7 @@ class SilentRefreshTest(StatePathMixin):
         self.assertEqual(tok["access_token"], "fresh")
         urls = [u for _, u, _, _ in rec.calls]
         self.assertTrue(any(u.endswith("/token") for u in urls))  # refresh grant fired
-        self.assertFalse(any("devicecode" in u for u in urls))    # no re-sign-in
+        self.assertFalse(any("devicecode" in u for u in urls))  # no re-sign-in
         self.assertIn("renewed access token silently", err.getvalue())
 
 
