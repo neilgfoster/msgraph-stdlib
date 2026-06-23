@@ -490,8 +490,9 @@ class RuleCreateTest(StatePathMixin):
         client.record_verification(["List-Unsubscribe"], 3)
 
         def responder(method, url, **kw):
-            if url.endswith("/me/mailFolders?$top=100&$select=id,displayName"):
-                return {"value": [{"id": "folder-123", "displayName": "Newsletters"}]}
+            # Top-level folder match (no regression for non-nested targets).
+            if url.split("?", 1)[0].endswith("/me/mailFolders"):
+                return {"value": [{"id": "folder-123", "displayName": "Newsletters", "childFolderCount": 0}]}
             if method == "POST":
                 return {"id": "rule-new"}
             return {}
@@ -519,6 +520,70 @@ class RuleCreateTest(StatePathMixin):
         self.assertEqual(body["actions"]["moveToFolder"], "folder-123")
         # no DELETE on any message endpoint
         self.assertNotIn("DELETE", rec.methods())
+
+    def test_success_resolves_move_to_folder_nested_under_inbox(self):
+        # feature 007: a folder nested under Inbox resolves to the nested folder's id.
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["List-Unsubscribe"], 2)
+
+        # Folder tree: Inbox (top) → Newsletters (nested). Served path-based, ignoring query.
+        tree = {
+            "/me/mailFolders": [{"id": "inbox-1", "displayName": "Inbox", "childFolderCount": 1}],
+            "/me/mailFolders/inbox-1/childFolders": [
+                {"id": "nested-9", "displayName": "Newsletters", "childFolderCount": 0}
+            ],
+        }
+
+        def responder(method, url, **kw):
+            if method == "POST":
+                return {"id": "rule-new"}
+            base = url.split("?", 1)[0]
+            for path, value in tree.items():
+                if base.endswith(path):
+                    return {"value": value}
+            return {"value": []}
+
+        import contextlib
+        import io
+
+        rec = _HttpRecorder(responder)
+        runtime._http = rec
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                client.cmd_rule_create(
+                    _Args(
+                        name="Newsletters",
+                        header_contains=["List-Unsubscribe"],
+                        move_to_folder="Newsletters",
+                    )
+                ),
+                0,
+            )
+        post = next(c for c in rec.calls if c[0] == "POST")
+        self.assertEqual(post[3]["actions"]["moveToFolder"], "nested-9")
+
+    def test_refuses_when_move_to_folder_name_exists_nowhere(self):
+        # feature 007: a name matching no folder at any depth still raises the steering error,
+        # and no rule is POSTed.
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["List-Unsubscribe"], 1)
+
+        def responder(method, url, **kw):
+            if url.split("?", 1)[0].endswith("/me/mailFolders"):
+                return {"value": [{"id": "f1", "displayName": "Inbox", "childFolderCount": 0}]}
+            return {"value": []}
+
+        rec = _HttpRecorder(responder)
+        runtime._http = rec
+        with self.assertRaises(client.SteerError):
+            client.cmd_rule_create(
+                _Args(
+                    name="X",
+                    header_contains=["List-Unsubscribe"],
+                    move_to_folder="DoesNotExist",
+                )
+            )
+        self.assertNotIn("POST", rec.methods())
 
 
 # ================================================================================================

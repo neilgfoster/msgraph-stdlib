@@ -15,6 +15,15 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+### Fixed
+
+- `rule-create --move_to_folder` (and `searchfolder-create` source folders) now resolve a
+  folder name at **any nesting depth** via the recursive folder name map, matching
+  `message-move`/`mail-list`. Previously only immediate children of the mailbox root were
+  searched, so a folder nested under Inbox (e.g. `Inbox/Newsletters`) failed with "No mail
+  folder named '<name>' was found". A genuinely non-existent name still raises the steering
+  error. No scope change.
+
 ## [0.5.0] - 2026-06-22
 
 ### Fixed
