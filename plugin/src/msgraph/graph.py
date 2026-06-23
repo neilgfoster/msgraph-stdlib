@@ -10,11 +10,18 @@ from msgraph import runtime
 
 
 def _resolve_folder_id(token: str, name: str) -> str:
-    """Look up a mail folder id by display name for the move-to-folder action (data-model)."""
-    data = runtime._graph_get(token, "/me/mailFolders", params={"$top": 100, "$select": "id,displayName"})
-    for f in data.get("value", []):
-        if f.get("displayName", "").casefold() == name.casefold():
-            return f["id"]
+    """Look up a mail folder id by display name for the move-to-folder action (data-model).
+
+    Accepts a well-known folder name verbatim, otherwise matches a display name at ANY nesting
+    depth via the recursive folder name map — parity with message-move / mail-list, so a folder
+    nested under Inbox (e.g. Inbox/Newsletters) resolves. Raises the steering error only when the
+    name exists nowhere at any depth (feature 007).
+    """
+    if name.casefold() in _WELL_KNOWN_FOLDERS:
+        return name.casefold()
+    for fid, fname in _folder_name_map(token).items():
+        if fname.casefold() == name.casefold():
+            return fid
     raise runtime.SteerError(
         f"No mail folder named '{name}' was found. Create it in Outlook first, or pass an "
         f"existing folder name (rule actions file mail to a folder; they never delete)."
