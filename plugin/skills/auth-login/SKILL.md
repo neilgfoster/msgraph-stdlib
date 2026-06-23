@@ -28,10 +28,20 @@ committed). The refresh token (`offline_access`) is used to renew silently on la
 | `folders` | `Mail.ReadWrite` + `MailboxSettings.Read` | the read verbs **plus** `searchfolder-create`, `searchfolder-remove` | author rules |
 | `messages` | `Mail.ReadWrite` + `MailboxSettings.Read` | the read verbs **plus** `message-move` (MOVE only, never delete) | author rules; **delete a message** (no verb does, no scope grants it) |
 
-A read-only token *structurally* carries no write grant, so even a bug cannot change the mailbox.
-Each escalation (`--mode rules` / `folders` / `messages`) is a separate browser consent — the OAuth
-grant is the audit record. No mode ever grants a delete capability. Stay in `read` until you actually
-need to write.
+The `--mode` flag shapes **what scopes are requested at consent** — choose the smallest that fits.
+Each escalation (`--mode rules` / `folders` / `messages`) is a separate browser consent, and the
+OAuth grant is the audit record. No mode ever *requests* a delete capability, so no verb can delete.
+
+**Honest caveat — Microsoft consent is sticky/cumulative.** Once you have consented to a write tier
+for this account+client *even once*, Microsoft's token endpoint returns **all previously-consented
+scopes on every token**, including a later `--mode read` sign-in. So a read-mode token is structurally
+write-incapable **only before any write mode has ever been consented** for the account; after that the
+read token still carries the write grants. The plugin **warns on stderr** at sign-in when the granted
+token is a write-capable superset of the requested mode. `_require_scopes` still refuses any verb whose
+needed scope is absent — treat it as a guardrail, not a structural impossibility. For the full
+rationale and the rejected per-tier-app alternative, see
+[`docs/adr/0001-scope-isolation-one-app-vs-per-tier.md`](../../../docs/adr/0001-scope-isolation-one-app-vs-per-tier.md).
+Stay in `read` until you actually need to write.
 
 ## One-time prerequisite (free, human)
 

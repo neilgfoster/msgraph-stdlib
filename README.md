@@ -49,8 +49,13 @@ with no supply-chain surface beyond the standard library.
 
 ## Safety model (least privilege + verify-then-reversible)
 
-- **Read-only by default.** Auth requests **`Mail.Read` only**. A read token physically cannot move,
-  archive, or delete a message — it carries no write grant. Safety is structural.
+- **Read-only by default.** Auth requests the **read scopes only** (`Mail.Read` +
+  `MailboxSettings.Read`). On a clean account this token carries no write grant. **Caveat:**
+  Microsoft consent is sticky/cumulative — once any write tier has been consented for the
+  account+client, the token endpoint returns those write scopes on *every* token, including a later
+  read-mode sign-in, so "structural read-only" holds only until the first write consent. The plugin
+  warns on stderr when a sign-in's granted scopes are a write-capable superset of the requested mode.
+  See [`docs/adr/0001-scope-isolation-one-app-vs-per-tier.md`](docs/adr/0001-scope-isolation-one-app-vs-per-tier.md).
 - **Scope ratchet.** Each write capability is a *separate*, deliberately-consented tier: rule/category
   authoring needs `MailboxSettings.ReadWrite`; creating search folders needs `Mail.ReadWrite`
   (`--mode folders`); moving messages needs `Mail.ReadWrite` (`--mode messages`). Escalation is

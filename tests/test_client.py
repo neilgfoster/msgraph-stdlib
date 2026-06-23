@@ -1035,5 +1035,149 @@ class FolderListTest(StatePathMixin):
         self.assertEqual(set(rec.methods()), {"GET"})  # never a write
 
 
+# ================================================================================================
+# feature 008 — bounded IPv4-first connect (Issue 1). Targets the connect helpers directly; never
+# mocks the _http seam (that seam is exactly the blind spot that hid this hang).
+# ================================================================================================
+import socket as _socket  # noqa: E402
+
+
+class BoundedConnectTest(unittest.TestCase):
+    def setUp(self):
+        self._orig_gai = runtime.socket.getaddrinfo
+        self._orig_sock = runtime.socket.socket
+        os.environ.pop("MSGRAPH_FORCE_IPV4", None)
+
+    def tearDown(self):
+        runtime.socket.getaddrinfo = self._orig_gai
+        runtime.socket.socket = self._orig_sock
+        os.environ.pop("MSGRAPH_FORCE_IPV4", None)
+
+    def _fake_gai(self, v4_first=False):
+        v6 = (_socket.AF_INET6, _socket.SOCK_STREAM, 6, "", ("::1", 443, 0, 0))
+        v4 = (_socket.AF_INET, _socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        order = [v4, v6] if v4_first else [v6, v4]
+        return lambda *a, **k: order
+
+    def test_orders_ipv4_first(self):
+        runtime.socket.getaddrinfo = self._fake_gai(v4_first=False)  # OS returns IPv6 first
+        infos = runtime._ordered_addrinfo("graph.microsoft.com", 443)
+        self.assertEqual(infos[0][0], _socket.AF_INET)  # IPv4 promoted to the front
+
+    def test_force_ipv4_drops_ipv6(self):
+        os.environ["MSGRAPH_FORCE_IPV4"] = "1"
+        runtime.socket.getaddrinfo = self._fake_gai()
+        infos = runtime._ordered_addrinfo("graph.microsoft.com", 443)
+        self.assertTrue(all(i[0] == _socket.AF_INET for i in infos))
+
+    def test_bounded_connect_falls_back_past_dead_address(self):
+        # First (IPv6) address times out; second (IPv4) connects. Assert fallback + ordering.
+        runtime.socket.getaddrinfo = self._fake_gai(v4_first=False)
+        attempted = []
+
+        class _FakeSock:
+            def __init__(self, af, *a, **k):
+                self.af = af
+
+            def settimeout(self, t):
+                self.timeout = t
+
+            def connect(self, sa):
+                attempted.append(self.af)
+                if self.af == _socket.AF_INET6:
+                    raise TimeoutError("blackholed v6")
+                # v4 connects fine
+
+            def close(self):
+                pass
+
+        runtime.socket.socket = lambda af, *a, **k: _FakeSock(af, *a, **k)
+        sock = runtime._bounded_connect("graph.microsoft.com", 443, 30)
+        self.assertEqual(sock.af, _socket.AF_INET)  # returned the reachable IPv4 socket
+        # IPv4 is tried first (ordering), so only one attempt is needed here…
+        self.assertIn(_socket.AF_INET, attempted)
+
+    def test_bounded_connect_raises_when_all_dead(self):
+        runtime.socket.getaddrinfo = self._fake_gai()
+
+        class _DeadSock:
+            def __init__(self, *a, **k):
+                pass
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, sa):
+                raise TimeoutError("dead")
+
+            def close(self):
+                pass
+
+        runtime.socket.socket = lambda *a, **k: _DeadSock()
+        with self.assertRaises(OSError):
+            runtime._bounded_connect("graph.microsoft.com", 443, 30)
+
+
+# ================================================================================================
+# feature 008 — silent refresh fires post-expiry without a device-code prompt (Issue 2).
+# ================================================================================================
+class SilentRefreshTest(StatePathMixin):
+    def test_expired_access_token_renews_via_refresh_not_devicecode(self):
+        client.save_token(
+            {
+                "access_token": "stale",
+                "refresh_token": "rt-123",
+                "scope": "Mail.Read MailboxSettings.Read offline_access",
+                "expires_at": 1,  # far past → refresh due
+            }
+        )
+
+        def responder(method, url, **kw):
+            if url.endswith("/token"):
+                return {"access_token": "fresh", "refresh_token": "rt-123", "expires_in": 3600}
+            return {}
+
+        rec = _HttpRecorder(responder)
+        runtime._http = rec
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            tok = runtime._authed_token("Mail.Read")
+        self.assertEqual(tok["access_token"], "fresh")
+        urls = [u for _, u, _, _ in rec.calls]
+        self.assertTrue(any(u.endswith("/token") for u in urls))  # refresh grant fired
+        self.assertFalse(any("devicecode" in u for u in urls))    # no re-sign-in
+        self.assertIn("renewed access token silently", err.getvalue())
+
+
+# ================================================================================================
+# feature 008 — scope-superset warning helper (Issue 3 / ADR-0001).
+# ================================================================================================
+class ScopeSupersetTest(unittest.TestCase):
+    def test_read_request_read_grant_no_extra(self):
+        self.assertEqual(
+            runtime._extra_write_scopes(
+                "Mail.Read MailboxSettings.Read offline_access",
+                "Mail.Read MailboxSettings.Read offline_access",
+            ),
+            set(),
+        )
+
+    def test_read_request_write_grant_flags_extra(self):
+        extra = runtime._extra_write_scopes(
+            "Mail.Read MailboxSettings.Read offline_access",
+            "Mail.Read MailboxSettings.Read MailboxSettings.ReadWrite Mail.ReadWrite offline_access",
+        )
+        self.assertEqual(extra, {"Mail.ReadWrite", "MailboxSettings.ReadWrite"})
+
+    def test_rules_request_rules_grant_no_extra(self):
+        self.assertEqual(
+            runtime._extra_write_scopes(
+                "Mail.Read MailboxSettings.ReadWrite offline_access",
+                "Mail.Read MailboxSettings.ReadWrite offline_access",
+            ),
+            set(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

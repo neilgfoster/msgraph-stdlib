@@ -11,8 +11,11 @@ Imports only the standard library — it is the leaf of the package dependency D
 """
 
 import hashlib
+import http.client
 import json
 import os
+import socket
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -80,6 +83,74 @@ class SteerError(Exception):
 
 
 # ================================================================================================
+# Bounded, IPv4-first connect (feature 008, Issue 1/2) — happy-eyeballs-lite over the stdlib.
+#
+# On a host where DNS returns both A and AAAA records but the IPv6 route is blackholed, a bare
+# `socket.create_connection` tries each address with the FULL operation timeout and in the OS order
+# (often IPv6 first), so the whole call hangs on the dead address — breaking first sign-in AND the
+# silent refresh (both flow through `_http`). We resolve addresses ourselves, prefer IPv4, and bound
+# the *connect* phase per address so a dead address fails fast to a reachable one (mirrors curl).
+# ================================================================================================
+def _connect_timeout() -> float:
+    try:
+        return float(os.environ.get("MSGRAPH_CONNECT_TIMEOUT", "5"))
+    except ValueError:
+        return 5.0
+
+
+def _ordered_addrinfo(host: str, port: int) -> list:
+    """Resolve host:port to addrinfo tuples, IPv4 first (dodges a blackholed IPv6 route).
+
+    `MSGRAPH_FORCE_IPV4` (any truthy value) restricts to IPv4 only — the documented stopgap for
+    badly broken dual-stack hosts — falling back to the full list only if no IPv4 address exists.
+    """
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    if os.environ.get("MSGRAPH_FORCE_IPV4"):
+        infos = [i for i in infos if i[0] == socket.AF_INET] or infos
+    infos.sort(key=lambda i: 0 if i[0] == socket.AF_INET else 1)
+    return infos
+
+
+def _bounded_connect(host: str, port: int, overall_timeout: float | None) -> socket.socket:
+    """Connect to the first reachable address, bounding each attempt by the connect timeout.
+
+    A failing/stalled address raises within `MSGRAPH_CONNECT_TIMEOUT` (default 5s) and we move on,
+    rather than letting one dead address consume the whole operation window. On success the socket
+    timeout is reset to the overall operation timeout so the read phase is not throttled.
+    """
+    connect_to = _connect_timeout()
+    last_err: Exception | None = None
+    for af, socktype, proto, _canon, sa in _ordered_addrinfo(host, port):
+        sock = socket.socket(af, socktype, proto)
+        try:
+            sock.settimeout(connect_to)
+            sock.connect(sa)
+            sock.settimeout(overall_timeout)
+            return sock
+        except OSError as e:  # timeout, unreachable, refused — try the next address
+            last_err = e
+            sock.close()
+    raise last_err or OSError(f"could not connect to {host}:{port}")
+
+
+class _BoundedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection whose connect() uses the bounded, IPv4-first path (no proxy/tunnel support)."""
+
+    def connect(self) -> None:
+        self.sock = _bounded_connect(self.host, self.port, self.timeout)
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+
+
+class _BoundedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_BoundedHTTPSConnection, req)
+
+
+# One opener reused for every request; only HTTPS is reached (Microsoft hosts are all TLS).
+_opener = urllib.request.build_opener(_BoundedHTTPSHandler())
+
+
+# ================================================================================================
 # The single HTTP seam — the one mockable boundary (research D8). All Graph + token traffic
 # flows through here so unit tests patch exactly one function and stay network-free.
 # ================================================================================================
@@ -103,7 +174,9 @@ def _http(method: str, url: str, token: str = None, body=None, form: bool = Fals
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (trusted Microsoft hosts)
+        # Bounded, IPv4-first connect (feature 008): the opener's HTTPS connection fails fast on a
+        # dead address instead of hanging the whole 30s window. Read phase keeps the 30s op timeout.
+        with _opener.open(req, timeout=30) as r:  # noqa: S310 (trusted Microsoft hosts)
             raw = r.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -192,7 +265,27 @@ def _refresh_if_needed(tok: dict) -> dict:
             "scope": tok.get("scope", ""),
         },
     )
-    return _store_token_response(resp, fallback_scope=tok.get("scope", ""))
+    renewed = _store_token_response(resp, fallback_scope=tok.get("scope", ""))
+    # Make silent refresh observable (feature 008, Issue 2): the user perceives "expired every
+    # session" when refresh fails silently; a stderr note shows it actually working. stdout stays
+    # machine-clean.
+    print("msgraph: renewed access token silently", file=sys.stderr)
+    return renewed
+
+
+# Write scopes that grant mutation capability — the basis of the sign-in superset warning (Issue 3).
+_WRITE_SCOPES = {"Mail.ReadWrite", "MailboxSettings.ReadWrite"}
+
+
+def _extra_write_scopes(requested: str, granted: str) -> set:
+    """Write scopes the token was GRANTED beyond what the requested mode asked for (feature 008).
+
+    AAD consent is sticky/cumulative: once a write tier has ever been consented for the account+
+    client, the token endpoint returns those write scopes on every token — even a read-mode request.
+    A non-empty result means the cached token can write despite the requested mode, so the headline
+    "structural read-only" no longer holds and the caller must say so.
+    """
+    return (_WRITE_SCOPES & set((granted or "").split())) - set((requested or "").split())
 
 
 def _authed_token(needed) -> dict:
