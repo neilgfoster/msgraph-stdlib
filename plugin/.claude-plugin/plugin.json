@@ -1,6 +1,6 @@
 {
   "name": "msgraph-stdlib",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Stdlib-only, zero-backend Claude Code plugin for Microsoft Graph: read Outlook mail and author/verify native Outlook message rules. Read-only by default, with a least-privilege scope ratchet and read-only catch-set verification before any rule is installed.",
   "author": {
     "name": "Neil Foster",

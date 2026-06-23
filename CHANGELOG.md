@@ -15,6 +15,8 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.6.0] - 2026-06-23
+
 ### Fixed
 
 - `rule-create --move_to_folder` (and `searchfolder-create` source folders) now resolve a
