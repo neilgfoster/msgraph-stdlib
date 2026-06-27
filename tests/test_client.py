@@ -1148,6 +1148,28 @@ class SilentRefreshTest(StatePathMixin):
         self.assertFalse(any("devicecode" in u for u in urls))  # no re-sign-in
         self.assertIn("renewed access token silently", err.getvalue())
 
+    def test_refresh_token_preserved_when_response_omits_it(self):
+        # RFC 6749 §6: server MAY omit refresh_token; old one must survive.
+        client.save_token(
+            {
+                "access_token": "stale",
+                "refresh_token": "rt-old",
+                "scope": "Mail.Read MailboxSettings.Read offline_access",
+                "expires_at": 1,
+            }
+        )
+
+        def responder(method, url, **kw):
+            if url.endswith("/token"):
+                return {"access_token": "fresh2", "expires_in": 3600}  # no refresh_token
+            return {}
+
+        runtime._http = _HttpRecorder(responder)
+        with contextlib.redirect_stderr(io.StringIO()):
+            runtime._authed_token("Mail.Read")
+        saved = client.load_token()
+        self.assertEqual(saved["refresh_token"], "rt-old")
+
 
 # ================================================================================================
 # feature 008 — scope-superset warning helper (Issue 3 / ADR-0001).
