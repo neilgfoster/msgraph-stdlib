@@ -15,6 +15,16 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.6.1] - 2026-06-27
+
+### Fixed
+
+- **Refresh token lost after silent renewal** — per RFC 6749 §6, a token-endpoint response MAY
+  omit `refresh_token` (meaning "keep using the previous one"). `_store_token_response` was
+  storing `""` in that case, so the very next expiry would raise "no refresh token — run
+  auth-login again" and force a full re-authentication. The old refresh token is now preserved
+  when the response does not supply a new one.
+
 ## [0.6.0] - 2026-06-23
 
 ### Fixed

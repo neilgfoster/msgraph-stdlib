@@ -265,7 +265,7 @@ def _refresh_if_needed(tok: dict) -> dict:
             "scope": tok.get("scope", ""),
         },
     )
-    renewed = _store_token_response(resp, fallback_scope=tok.get("scope", ""))
+    renewed = _store_token_response(resp, fallback_scope=tok.get("scope", ""), prev_tok=tok)
     # Make silent refresh observable (feature 008, Issue 2): the user perceives "expired every
     # session" when refresh fails silently; a stderr note shows it actually working. stdout stays
     # machine-clean.
@@ -295,11 +295,12 @@ def _authed_token(needed) -> dict:
     return _refresh_if_needed(tok)
 
 
-def _store_token_response(resp: dict, fallback_scope: str) -> dict:
+def _store_token_response(resp: dict, fallback_scope: str, *, prev_tok: dict | None = None) -> dict:
     """Shape a Microsoft token response into our cache record and persist it (data-model TokenCache)."""
     tok = {
         "access_token": resp["access_token"],
-        "refresh_token": resp.get("refresh_token", ""),
+        # RFC 6749 §6: the server MAY omit refresh_token (meaning "keep the old one").
+        "refresh_token": resp.get("refresh_token") or (prev_tok or {}).get("refresh_token", ""),
         "scope": resp.get("scope") or fallback_scope,
         "expires_at": int(time.time()) + int(resp.get("expires_in", 3600)),
         "account": resp.get("account", ""),
