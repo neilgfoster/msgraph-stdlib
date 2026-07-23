@@ -921,6 +921,32 @@ class SearchFolderTest(StatePathMixin):
                 )
             )
 
+    def test_create_does_not_false_positive_on_deduped_source_folders(self):
+        # Regression: a duplicate/aliased --source_folders input (two entries resolving to the
+        # same real folder id) must not trip the short-list refusal just because Graph legitimately
+        # dedupes sourceFolderIds — compare against distinct resolved ids, not the raw input count.
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf-dedup", "sourceFolderIds": ["AAMk-inbox-real-id"]}
+
+        rec = _HttpRecorder(respond)
+        runtime._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Needs attention (dup source)",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox", "inbox"],
+                include_nested=True,
+            ),
+        )
+        body = next(c for c in rec.calls if c[0] == "POST")[3]
+        self.assertEqual(body["sourceFolderIds"], ["AAMk-inbox-real-id", "AAMk-inbox-real-id"])
+
     def test_list_read_scope_only(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")
         payload = {

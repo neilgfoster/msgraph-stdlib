@@ -439,10 +439,11 @@ def cmd_searchfolder_create(args) -> int:
         body=body,
     )
     applied_ids = created.get("sourceFolderIds") or []
-    if len(applied_ids) < len(source_ids):
+    distinct_requested = len(set(source_ids))
+    if len(applied_ids) < distinct_requested:
         raise runtime.SteerError(
             f'Created search folder "{args.name}" (id: {created.get("id", "?")}), but Graph reports '
-            f"only {len(applied_ids)} of {len(source_ids)} requested source folder(s) applied — its "
+            f"only {len(applied_ids)} of {distinct_requested} requested source folder(s) applied — its "
             f"filter may never match any mail. Remove it with searchfolder-remove "
             f"--folder_id {created.get('id', '?')} and retry, or inspect with searchfolder-list "
             f"--format detailed."
