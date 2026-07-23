@@ -131,6 +131,17 @@ class VerbUrlConstructionTest(unittest.TestCase):
         self.assertIn("isRead", fields)
         self.assertIn("categories", fields)
 
+    def test_mail_list_select_omits_isread_and_categories_for_concise(self):
+        # Efficiency: concise format doesn't render isRead/categories, so the $select sent to Graph
+        # shouldn't request them either — no wasted bandwidth on every concise call.
+        self._run(client.cmd_mail_list, _Args(limit=10, format="concise"))
+        self.assertTrue(self.urls)
+        url = self.urls[0]
+        select = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["$select"][0]
+        fields = select.split(",")
+        self.assertNotIn("isRead", fields)
+        self.assertNotIn("categories", fields)
+
     def test_rule_verify_fetch_url_is_valid(self):
         self._run(client.cmd_rule_verify, _Args(header_contains=["List-Unsubscribe"], format="concise"))
         self.assertTrue(self.urls)
