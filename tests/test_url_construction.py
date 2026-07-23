@@ -98,6 +98,12 @@ class VerbUrlConstructionTest(unittest.TestCase):
 
         def capture(method, url, token=None, body=None, form=False):
             self.urls.append(url)
+            if method == "GET" and url.rstrip("/").endswith("/me/mailFolders/inbox"):
+                # Well-known-folder resolution (searchfolder-create, issue #21) needs a real id back.
+                return {"id": "AAMk-inbox-real-id"}
+            if method == "POST" and url.endswith("/me/mailFolders/searchfolders/childFolders"):
+                ids = (body or {}).get("sourceFolderIds") or []
+                return {"id": "sf-new", "sourceFolderIds": ids}
             return {"value": []}
 
         runtime._http = capture

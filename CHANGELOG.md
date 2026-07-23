@@ -15,6 +15,17 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+### Fixed
+
+- **`searchfolder-create`'s documented `--source_folders` default was inert** — well-known folder
+  names (including the `inbox` default) were passed to Graph verbatim as strings in
+  `sourceFolderIds`, mirroring the `destinationId` shortcut used elsewhere in this codebase. Graph
+  does not document (or honor) that shortcut for `sourceFolderIds`: it accepted the creation
+  request but silently produced a search folder with zero source folders — a filter that could
+  structurally never match any mail. Well-known names are now resolved to real Graph folder ids
+  before creation, and the verb now verifies the created folder's `sourceFolderIds` actually
+  applied, refusing loudly (rather than reporting a false success) if it comes back short.
+
 ## [0.6.1] - 2026-06-27
 
 ### Fixed

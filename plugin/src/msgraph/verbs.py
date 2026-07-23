@@ -422,12 +422,9 @@ def cmd_searchfolder_create(args) -> int:
             "(builds a category filter) or an explicit --filter_query (OData)."
         )
     source_names = args.source_folders or ["inbox"]
-    # Well-known names (inbox, archive, …) are accepted verbatim by Graph; resolve any others to ids.
-    _WELL_KNOWN = {"inbox", "archive", "drafts", "sentitems", "deleteditems", "junkemail", "msgfolderroot"}
-    source_ids = [
-        n if n.casefold() in _WELL_KNOWN else graph._resolve_folder_id(tok["access_token"], n)
-        for n in source_names
-    ]
+    # sourceFolderIds needs REAL folder ids — Graph does not accept a well-known name verbatim
+    # there the way it does for destinationId-style fields (issue #21); resolve every entry.
+    source_ids = [graph._resolve_source_folder_id(tok["access_token"], n) for n in source_names]
     body = {
         "@odata.type": "microsoft.graph.mailSearchFolder",
         "displayName": args.name,
@@ -441,6 +438,15 @@ def cmd_searchfolder_create(args) -> int:
         token=tok["access_token"],
         body=body,
     )
+    applied_ids = created.get("sourceFolderIds") or []
+    if len(applied_ids) < len(source_ids):
+        raise runtime.SteerError(
+            f'Created search folder "{args.name}" (id: {created.get("id", "?")}), but Graph reports '
+            f"only {len(applied_ids)} of {len(source_ids)} requested source folder(s) applied — its "
+            f"filter may never match any mail. Remove it with searchfolder-remove "
+            f"--folder_id {created.get('id', '?')} and retry, or inspect with searchfolder-list "
+            f"--format detailed."
+        )
     print(
         f'Created search folder "{args.name}" (id: {created.get("id", "?")}). It presents a filtered '
         f"view (filter: {filter_query}) over {source_names}; it is virtual — no mail is moved or "

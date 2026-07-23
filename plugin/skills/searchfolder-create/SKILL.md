@@ -27,7 +27,11 @@ structurally. That separation is the scope ratchet, the heart of the safety mode
 **Filter.** `--category "Needs attention"` builds `categories/any(c:c eq 'Needs attention')` for you;
 or pass `--filter_query` to supply any OData filter directly (it overrides `--category`).
 `--source_folders` accepts well-known names (`inbox`, `archive`, …) or folder display names; default
-is `inbox`. `--include_nested true` (default) deep-searches subfolders.
+is `inbox`. Every name (well-known or not) is resolved to a real Graph folder id before creation —
+Graph does not honor a well-known name placed verbatim in `sourceFolderIds`, so this verb never
+creates a folder whose filter could structurally never match anything. If Graph's response ever
+comes back with fewer applied source folders than requested, the verb refuses and reports an error
+instead of a false success. `--include_nested true` (default) deep-searches subfolders.
 
 ## Typical flow
 
@@ -67,4 +71,6 @@ moved or deleted. Remove anytime with searchfolder-remove.
 error: This action needs … run /msgraph-auth-login --mode folders.
 error: Refusing to create this search folder: no filter given. Pass --category NAME or --filter_query.
 error: No mail folder named 'X' was found. Create it in Outlook first, or pass an existing folder name.
+error: Created search folder "X" (id: ...), but Graph reports only 0 of 1 requested source folder(s)
+applied — its filter may never match any mail. Remove it with searchfolder-remove --folder_id ...
 ```
