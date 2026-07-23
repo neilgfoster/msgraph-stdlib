@@ -800,6 +800,77 @@ class CategoryTest(StatePathMixin):
                 _Args(name="N", header_contains=["Unverified"], move_to_folder=None, assign_category=["Lbl"])
             )
 
+    def test_rule_create_default_sequence_and_stop_processing_unchanged(self):
+        # 019: omitting --sequence/--stop_processing_rules must reproduce the prior hardcoded body.
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["X"], 1)
+        rec = _HttpRecorder(lambda method, url, **kw: {"id": "rule-new"})
+        runtime._http = rec
+        out = self._capture(
+            client.cmd_rule_create,
+            _Args(
+                name="N",
+                header_contains=["X"],
+                move_to_folder=None,
+                assign_category=["Lbl"],
+                sequence=1,
+                stop_processing_rules=False,
+            ),
+        )
+        rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
+        self.assertEqual(rule_post[3]["sequence"], 1)
+        self.assertEqual(rule_post[3]["actions"]["stopProcessingRules"], False)
+        self.assertIn("Sequence: 1, stop processing rules: false", out)
+
+    def test_rule_create_explicit_sequence_and_stop_processing_rules(self):
+        # 019: explicit --sequence/--stop_processing_rules must land verbatim in the POST body.
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["billing@newsletter.example"], 3)
+
+        def responder(method, url, **kw):
+            if "/me/mailFolders?" in url:
+                return {"value": [{"id": "f-billing", "displayName": "Billing"}]}
+            if method == "POST":
+                return {"id": "rule-new"}
+            return {}
+
+        rec = _HttpRecorder(responder)
+        runtime._http = rec
+        out = self._capture(
+            client.cmd_rule_create,
+            _Args(
+                name="Billing",
+                header_contains=["billing@newsletter.example"],
+                move_to_folder="Billing",
+                assign_category=None,
+                sequence=3,
+                stop_processing_rules=True,
+            ),
+        )
+        rule_post = next(c for c in rec.calls if c[0] == "POST" and c[1].endswith("/messageRules"))
+        self.assertEqual(rule_post[3]["sequence"], 3)
+        self.assertEqual(rule_post[3]["actions"]["stopProcessingRules"], True)
+        self.assertIn("Sequence: 3, stop processing rules: true", out)
+
+    def test_rule_create_rejects_non_positive_sequence(self):
+        # 019: an invalid --sequence must be refused client-side, before any Graph call.
+        self._sign_in("Mail.Read MailboxSettings.ReadWrite offline_access")
+        client.record_verification(["X"], 1)
+        rec = _HttpRecorder()
+        runtime._http = rec
+        with self.assertRaises(client.SteerError):
+            client.cmd_rule_create(
+                _Args(
+                    name="N",
+                    header_contains=["X"],
+                    move_to_folder=None,
+                    assign_category=["Lbl"],
+                    sequence=0,
+                    stop_processing_rules=False,
+                )
+            )
+        self.assertEqual(rec.calls, [])  # refused before touching the network seam
+
 
 # ================================================================================================
 # T030 — US2: search-folder create / list / remove + the new scope tier

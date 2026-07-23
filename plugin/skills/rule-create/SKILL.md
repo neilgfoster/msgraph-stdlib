@@ -1,7 +1,7 @@
 ---
 name: "rule-create"
-description: "Install a native Outlook message rule that FILES matching mail to a folder and/or ASSIGNS a category to it (move-to-folder and/or assign-category — never delete). Requires rule-authoring sign-in (run /msgraph-auth-login --mode rules; MailboxSettings.ReadWrite). REFUSES unless the exact same header_contains criteria were verified first with rule-verify — verify-then-install is a hard safety gate, not a convention — and refuses if you give no action at all. Any assigned category is ensured to exist (coloured) first. Use after you have inspected headers (mail-get) and confirmed the catch-set (rule-verify). The rule appears in Outlook's own Rules UI and is fully reversible: remove it with rule-remove and any mail already filed/labelled stays put. Pass a name, the verified header_contains substrings, and at least one of --move_to_folder or --assign_category."
-argument-hint: "--name <rule name> --header_contains SUBSTR [SUBSTR ...] [--move_to_folder <folder name>] [--assign_category NAME ...]"
+description: "Install a native Outlook message rule that FILES matching mail to a folder and/or ASSIGNS a category to it (move-to-folder and/or assign-category — never delete). Requires rule-authoring sign-in (run /msgraph-auth-login --mode rules; MailboxSettings.ReadWrite). REFUSES unless the exact same header_contains criteria were verified first with rule-verify — verify-then-install is a hard safety gate, not a convention — and refuses if you give no action at all. Any assigned category is ensured to exist (coloured) first. Use after you have inspected headers (mail-get) and confirmed the catch-set (rule-verify). The rule appears in Outlook's own Rules UI and is fully reversible: remove it with rule-remove and any mail already filed/labelled stays put. Pass a name, the verified header_contains substrings, and at least one of --move_to_folder or --assign_category. Optionally pass --sequence to control evaluation order among your rules (lower runs first, default 1) and --stop_processing_rules to stop lower-priority rules from also acting once this one matches (default false) — useful when predicates overlap and a more specific rule should win over a broader one."
+argument-hint: "--name <rule name> --header_contains SUBSTR [SUBSTR ...] [--move_to_folder <folder name>] [--assign_category NAME ...] [--sequence N] [--stop_processing_rules]"
 user-invocable: true
 disable-model-invocation: false
 annotations:
@@ -37,6 +37,15 @@ a specific colour.
 The target folder must already exist in Outlook (the command resolves its name to an id); rules file
 mail to a folder, they never create or delete one.
 
+**Ordering and chain-stop.** By default every rule is created with `sequence: 1` and
+`stopProcessingRules: false`, matching Outlook's own defaults. When your rules' predicates overlap
+(e.g. a broad "any newsletter" rule and a narrower "billing newsletter" rule), pass a lower
+`--sequence` on the more specific rule so it evaluates first, and pass `--stop_processing_rules` on
+it so a message it already matched isn't also acted on by a later, broader rule. `--sequence` must be
+a positive integer; an invalid value is refused before any Graph call is made. Reordering an already
+installed rule isn't supported directly — remove it (`rule-remove`) and recreate it with the new
+`--sequence`.
+
 ## Typical flow
 
 ```bash
@@ -48,6 +57,12 @@ mail to a folder, they never create or delete one.
 # or label on arrival (alone or combined with --move_to_folder):
 /msgraph-rule-create --name "Flag newsletters" \
     --header_contains "List-Unsubscribe" --assign_category "Needs attention"
+# or make a specific rule win over a broader one, and stop further rules from also acting:
+/msgraph-rule-create --name "Billing" \
+    --header_contains "billing@newsletter.example" --move_to_folder "Billing" \
+    --sequence 1 --stop_processing_rules
+/msgraph-rule-create --name "Newsletters" \
+    --header_contains "@newsletter.example" --move_to_folder "Newsletters" --sequence 2
 ```
 
 ## Discoverability
@@ -68,7 +83,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/src/msgraph/client.py" rule-create \
 
 ```
 Created rule "Newsletters" (id: AAMk...). It files mail whose headers contain ['List-Unsubscribe']
-into "Newsletters". Verified catch-set was 7 message(s). Reverse anytime with rule-remove.
+into "Newsletters". Verified catch-set was 7 message(s). Sequence: 1, stop processing rules: false.
+Reverse anytime with rule-remove.
 ```
 
 ## Errors steer the agent
@@ -77,4 +93,5 @@ into "Newsletters". Verified catch-set was 7 message(s). Reverse anytime with ru
 error: This action needs rule-authoring permission … run /msgraph-auth-login --mode rules.
 error: Refusing to create this rule: its criteria were not verified first. Run rule-verify … then retry.
 error: No mail folder named 'X' was found. Create it in Outlook first, or pass an existing folder name.
+error: rule-create: --sequence must be a positive integer (got: 0)
 ```

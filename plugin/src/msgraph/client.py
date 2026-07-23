@@ -180,6 +180,18 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.choices["rule-create"].add_argument(
         "--assign_category", nargs="+", metavar="NAME", help="optional category name(s) to assign"
     )
+    sub.choices["rule-create"].add_argument(
+        "--sequence",
+        type=int,
+        default=1,
+        help="evaluation order among this mailbox's rules; lower runs first (default 1)",
+    )
+    sub.choices["rule-create"].add_argument(
+        "--stop_processing_rules",
+        type=lambda v: str(v).lower() not in ("false", "0", "no"),
+        default=False,
+        help="stop evaluating lower-priority rules once this rule's action(s) run (default false)",
+    )
     sub.choices["rule-remove"].add_argument("--rule_id", required=True, help="Graph rule id")
 
     sub.choices["category-ensure"].add_argument("--name", required=True, help="category display name")
