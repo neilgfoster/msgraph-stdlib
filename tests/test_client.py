@@ -261,6 +261,65 @@ class MailReadTest(StatePathMixin):
         self.assertEqual(rec.methods(), ["GET"])
         self.assertIn("$top=10", rec.calls[0][1])
 
+    def test_mail_list_detailed_includes_isread_and_categories(self):
+        # 001-mail-list-fields: --format detailed must surface per-message isRead/categories so a
+        # read-only client can filter unread, category-tagged mail without extra Graph calls.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        payload = {
+            "value": [
+                {
+                    "id": "m1",
+                    "subject": "Unread tagged",
+                    "from": {"emailAddress": {"address": "a@x.com"}},
+                    "receivedDateTime": "2026-06-01T00:00:00Z",
+                    "isRead": False,
+                    "categories": ["Follow Up"],
+                },
+                {
+                    "id": "m2",
+                    "subject": "Read, no categories",
+                    "from": {"emailAddress": {"address": "b@x.com"}},
+                    "receivedDateTime": "2026-06-02T00:00:00Z",
+                    "isRead": True,
+                    "categories": [],
+                },
+            ]
+        }
+        rec = _HttpRecorder(lambda method, url, **kw: payload)
+        runtime._http = rec
+        out = self._capture(client.cmd_mail_list, _Args(limit=10, format="detailed", folder="inbox"))
+        messages = json.loads(out)
+        self.assertEqual(messages[0]["isRead"], False)
+        self.assertEqual(messages[0]["categories"], ["Follow Up"])
+        self.assertEqual(messages[1]["isRead"], True)
+        # Uncategorized message must report [] — never omitted or null (FR-006).
+        self.assertIn("categories", messages[1])
+        self.assertEqual(messages[1]["categories"], [])
+        self.assertIsNotNone(messages[1]["categories"])
+
+    def test_mail_list_concise_format_unchanged(self):
+        # 001-mail-list-fields FR-003 regression guard: concise output must not gain isRead/categories.
+        self._sign_in("Mail.Read MailboxSettings.Read offline_access")
+        payload = {
+            "value": [
+                {
+                    "id": "m1",
+                    "subject": "Hello",
+                    "from": {"emailAddress": {"address": "a@x.com"}},
+                    "receivedDateTime": "2026-06-01T00:00:00Z",
+                    "isRead": False,
+                    "categories": ["Follow Up"],
+                }
+            ]
+        }
+        rec = _HttpRecorder(lambda method, url, **kw: payload)
+        runtime._http = rec
+        out = self._capture(client.cmd_mail_list, _Args(limit=10, format="concise", folder="inbox"))
+        self.assertIn("Hello", out)
+        self.assertNotIn("isRead", out)
+        self.assertNotIn("Follow Up", out)
+        self.assertNotIn("categories", out)
+
     def test_mail_list_defaults_to_inbox_scope(self):
         # No-args (folder omitted) must read the inbox-scoped path, not all-folders /me/messages.
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")

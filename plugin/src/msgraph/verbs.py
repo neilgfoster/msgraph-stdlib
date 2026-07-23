@@ -121,7 +121,7 @@ def cmd_mail_list(args) -> int:
     token = tok["access_token"]
     folder = getattr(args, "folder", None) or "inbox"
     folder_id, label = graph._resolve_folder(token, folder)
-    sel = "id,subject,from,receivedDateTime"
+    sel = "id,subject,from,receivedDateTime,isRead,categories"
     fid = urllib.parse.quote(folder_id, safe="")
     try:
         data = runtime._graph_get(

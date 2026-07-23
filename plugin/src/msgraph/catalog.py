@@ -79,7 +79,9 @@ TOOLS = [
             "List recent messages from a single folder, agent-legibly. Defaults to the Inbox — what "
             "actually needs triage, not already-filed mail across every folder. Use for "
             "triage/overview; pass folder to inspect another folder. concise (default) returns "
-            "readable summaries; detailed adds IDs for follow-up calls. Requires read sign-in."
+            "readable summaries; detailed adds IDs plus each message's isRead (boolean) and "
+            "categories (list of names, [] if none) for follow-up calls — e.g. filtering unread, "
+            "category-tagged mail. Requires read sign-in."
         ),
         "annotations": {
             "readOnlyHint": True,
