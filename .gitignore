@@ -43,6 +43,9 @@ specs/
 .github/agents/speckit*
 .github/prompts/speckit*
 # --- end tredl ---
+# --- kord: GitHub Issue Tracking substrate ---
+.kord/
+# --- end kord: GitHub Issue Tracking substrate ---
 # --- kord: GitHub Spec Kit substrate ---
 .specify/
 specs/
