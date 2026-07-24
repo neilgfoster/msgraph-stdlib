@@ -15,6 +15,8 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+## [0.7.0] - 2026-07-24
+
 ### Added
 
 - **`rule-create --sequence` / `--stop_processing_rules`** — the created rule's evaluation order
