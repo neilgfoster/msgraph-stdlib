@@ -852,7 +852,13 @@ class SearchFolderTest(StatePathMixin):
 
     def test_create_shapes_body_with_odata_type(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
-        rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf-new"})
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf-new", "sourceFolderIds": ["AAMk-inbox-real-id"]}
+
+        rec = _HttpRecorder(respond)
         runtime._http = rec
         self._capture(
             client.cmd_searchfolder_create,
@@ -869,12 +875,23 @@ class SearchFolderTest(StatePathMixin):
         body = post[3]
         self.assertEqual(body["@odata.type"], "microsoft.graph.mailSearchFolder")
         self.assertEqual(body["includeNestedFolders"], True)
-        self.assertEqual(body["sourceFolderIds"], ["inbox"])  # well-known name passed through
+        # A well-known name is resolved to a REAL folder id — never passed through verbatim
+        # (issue #21: Graph silently drops a verbatim well-known name from sourceFolderIds).
+        self.assertEqual(body["sourceFolderIds"], ["AAMk-inbox-real-id"])
         self.assertEqual(body["filterQuery"], "categories/any(c:c eq 'Needs attention')")
+        # The resolution GET hit the well-known-name path, not a display-name search.
+        get_call = next(c for c in rec.calls if c[0] == "GET")
+        self.assertTrue(get_call[1].endswith("/me/mailFolders/inbox"))
 
     def test_create_explicit_filter_overrides_category(self):
         self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
-        rec = _HttpRecorder(lambda method, url, **kw: {"id": "sf"})
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf", "sourceFolderIds": ["AAMk-inbox-real-id"]}
+
+        rec = _HttpRecorder(respond)
         runtime._http = rec
         self._capture(
             client.cmd_searchfolder_create,
@@ -889,7 +906,105 @@ class SearchFolderTest(StatePathMixin):
         body = next(c for c in rec.calls if c[0] == "POST")[3]
         self.assertEqual(body["filterQuery"], "hasAttachments eq true")
         self.assertEqual(body["includeNestedFolders"], False)
-        self.assertEqual(body["sourceFolderIds"], ["inbox"])  # default
+        # Default (omitted --source_folders) resolves the same way as an explicit "inbox".
+        self.assertEqual(body["sourceFolderIds"], ["AAMk-inbox-real-id"])
+
+    def test_create_explicit_wellknown_matches_default(self):
+        # Acceptance Scenario 2: --source_folders inbox behaves identically to the default.
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf", "sourceFolderIds": ["AAMk-inbox-real-id"]}
+
+        rec = _HttpRecorder(respond)
+        runtime._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Needs attention (explicit)",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox"],
+                include_nested=True,
+            ),
+        )
+        body = next(c for c in rec.calls if c[0] == "POST")[3]
+        self.assertEqual(body["sourceFolderIds"], ["AAMk-inbox-real-id"])
+
+    def test_create_resolves_non_wellknown_source_folder_name(self):
+        # FR-004: non-well-known names keep resolving via the existing display-name path.
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"value": [{"id": "nested-id", "displayName": "Newsletters", "childFolderCount": 0}]}
+            return {"id": "sf", "sourceFolderIds": ["nested-id"]}
+
+        rec = _HttpRecorder(respond)
+        runtime._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Newsletters view",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["Newsletters"],
+                include_nested=True,
+            ),
+        )
+        body = next(c for c in rec.calls if c[0] == "POST")[3]
+        self.assertEqual(body["sourceFolderIds"], ["nested-id"])
+
+    def test_create_refuses_when_source_folder_ids_come_back_short(self):
+        # User Story 2 / FR-003: never present a search folder that can never match anything as
+        # if it succeeded — refuse loudly instead.
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf-broken", "sourceFolderIds": []}
+
+        rec = _HttpRecorder(respond)
+        runtime._http = rec
+        with self.assertRaises(client.SteerError):
+            client.cmd_searchfolder_create(
+                _Args(
+                    name="Needs attention",
+                    category="Needs attention",
+                    filter_query=None,
+                    source_folders=["inbox"],
+                    include_nested=True,
+                )
+            )
+
+    def test_create_does_not_false_positive_on_deduped_source_folders(self):
+        # Regression: a duplicate/aliased --source_folders input (two entries resolving to the
+        # same real folder id) must not trip the short-list refusal just because Graph legitimately
+        # dedupes sourceFolderIds — compare against distinct resolved ids, not the raw input count.
+        self._sign_in("Mail.ReadWrite MailboxSettings.Read offline_access")
+
+        def respond(method, url, **kw):
+            if method == "GET":
+                return {"id": "AAMk-inbox-real-id"}
+            return {"id": "sf-dedup", "sourceFolderIds": ["AAMk-inbox-real-id"]}
+
+        rec = _HttpRecorder(respond)
+        runtime._http = rec
+        self._capture(
+            client.cmd_searchfolder_create,
+            _Args(
+                name="Needs attention (dup source)",
+                category="Needs attention",
+                filter_query=None,
+                source_folders=["inbox", "inbox"],
+                include_nested=True,
+            ),
+        )
+        body = next(c for c in rec.calls if c[0] == "POST")[3]
+        self.assertEqual(body["sourceFolderIds"], ["AAMk-inbox-real-id", "AAMk-inbox-real-id"])
 
     def test_list_read_scope_only(self):
         self._sign_in("Mail.Read MailboxSettings.Read offline_access")

@@ -28,6 +28,29 @@ def _resolve_folder_id(token: str, name: str) -> str:
     )
 
 
+def _resolve_source_folder_id(token: str, name: str) -> str:
+    """Resolve a --source_folders entry to a REAL Graph folder id (searchfolder-create, issue #21).
+
+    Unlike _resolve_folder_id (used for destinationId-style fields, where Graph documents accepting
+    a well-known name verbatim), mailSearchFolder's sourceFolderIds is documented as a plain folder-
+    id string collection with no such carve-out: passing a well-known name there silently produces
+    an empty sourceFolderIds on the created folder, leaving its filter unable to ever match anything.
+    Well-known names are resolved via GET /me/mailFolders/{name} (Graph accepts a well-known name in
+    that position) to obtain the real id; anything else uses the existing display-name resolution.
+    """
+    if name.casefold() in _WELL_KNOWN_FOLDERS:
+        folder = runtime._graph_get(token, f"/me/mailFolders/{name.casefold()}")
+        fid = folder.get("id")
+        if not fid:
+            raise runtime.SteerError(
+                f"Could not resolve the well-known folder '{name}' to a real folder id — Graph's "
+                f"response had none. Refusing to create a search folder that could never match "
+                f"any mail."
+            )
+        return fid
+    return _resolve_folder_id(token, name)
+
+
 # Well-known folder names Graph accepts verbatim as a destinationId (no lookup needed).
 _WELL_KNOWN_FOLDERS = {
     "inbox",
