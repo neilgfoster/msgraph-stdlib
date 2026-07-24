@@ -282,9 +282,13 @@ def cmd_rule_create(args) -> int:
             f"rule-verify --header_contains {args.header_contains} to preview the catch-set, "
             "then retry. (verify-then-install is a hard safety gate.)"
         )
+    sequence = getattr(args, "sequence", 1)
+    if not isinstance(sequence, int) or sequence < 1:
+        raise runtime.SteerError(f"rule-create: --sequence must be a positive integer (got: {sequence})")
+    stop_processing_rules = getattr(args, "stop_processing_rules", False)
     # Build actions conditionally — only move-to-folder and/or assign-category; never a delete-style
     # action (FR-009/FR-012). Each assigned category is ensured to exist (coloured) first (FR-005).
-    actions: dict = {"stopProcessingRules": False}
+    actions: dict = {"stopProcessingRules": stop_processing_rules}
     summary = []
     if move_to_folder:
         actions["moveToFolder"] = graph._resolve_folder_id(tok["access_token"], move_to_folder)
@@ -296,7 +300,7 @@ def cmd_rule_create(args) -> int:
         summary.append(f"assigns category {assign_category}")
     body = {
         "displayName": args.name,
-        "sequence": 1,
+        "sequence": sequence,
         "isEnabled": True,
         "conditions": {"headerContains": list(args.header_contains)},
         "actions": actions,
@@ -308,6 +312,7 @@ def cmd_rule_create(args) -> int:
         f'Created rule "{args.name}" (id: {created.get("id", "?")}). For mail whose headers '
         f"contain {args.header_contains}, it {' and '.join(summary)}. "
         f"Verified catch-set was {marker.get('count', '?')} message(s). "
+        f"Sequence: {sequence}, stop processing rules: {str(stop_processing_rules).lower()}. "
         f"Reverse anytime with rule-remove."
     )
     return 0

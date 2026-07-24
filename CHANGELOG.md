@@ -15,6 +15,21 @@ Add notes here under Added / Changed / Fixed / Removed. On release, move them un
 ## [X.Y.Z] - YYYY-MM-DD heading and bump plugin/.claude-plugin/plugin.json to match.
 -->
 
+### Added
+
+- **`rule-create --sequence` / `--stop_processing_rules`** — the created rule's evaluation order
+  and chain-stop behaviour are now caller-controlled instead of hardcoded to `sequence: 1` /
+  `stopProcessingRules: false`. Lets a more specific rule be ordered before, and take precedence
+  over, a broader overlapping rule. Both are optional and default to the prior hardcoded values, so
+  existing callers are unaffected; an invalid `--sequence` (not a positive integer) is refused
+  before any Graph call.
+- **`mail-list --format detailed` exposes `isRead` and `categories`** — previously only a minimal
+  projection (`from`, `id`, `receivedDateTime`, `subject`) was returned, so no read-only verb could
+  surface per-message read status or category tags; a client had to degrade to folder-level unread
+  counts. Both fields are now included in the Graph `$select` and JSON output for
+  `--format detailed`. No new OAuth scope — both are readable under the existing `Mail.Read` grant.
+  `--format concise` is unchanged.
+
 ### Fixed
 
 - **`searchfolder-create`'s documented `--source_folders` default was inert** — well-known folder

@@ -288,6 +288,20 @@ TOOLS = [
                     "exist (coloured) before install. At least one of move_to_folder/assign_category "
                     "required.",
                 },
+                "sequence": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1,
+                    "description": "Evaluation order among this mailbox's rules; lower runs first. "
+                    "Optional — defaults to 1 (prior behavior) when omitted.",
+                },
+                "stop_processing_rules": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "When true, Graph stops evaluating lower-priority rules once this "
+                    "rule's action(s) have run on a matching message. Optional — defaults to false "
+                    "(prior behavior) when omitted.",
+                },
             },
             "required": ["name", "header_contains"],
         },
