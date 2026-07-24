@@ -43,3 +43,8 @@ specs/
 .github/agents/speckit*
 .github/prompts/speckit*
 # --- end tredl ---
+# --- kord: GitHub Spec Kit substrate ---
+.specify/
+specs/
+.claude/skills/speckit-*/
+# --- end kord: GitHub Spec Kit substrate ---
